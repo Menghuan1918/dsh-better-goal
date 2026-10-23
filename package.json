@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Independent DSH goal plugin: one goal tool, persistent continuation, hot settings and timed questions.",
   "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Menghuan1918/dsh-better-goal.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "type": "module",
   "main": "src/index.js",
   "exports": {

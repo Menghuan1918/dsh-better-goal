@@ -70,10 +70,14 @@ Apollo 是包含流程技能、工程模式和本插件的集合，goal 是其�
 ### 只想要持久目标（独立安装）
 
 ```sh
+# npm 发行版
+dsh plugin --profile <profile> add dsh-better-goal@0.1.0
+
+# 或从 GitHub main 安装
 dsh plugin --profile <profile> add github:Menghuan1918/dsh-better-goal
 ```
 
-这是从 GitHub `main` 安装。完成后，目标设置出现在 **Plugins → dsh-better-goal → dsh-better-goal 行**。
+完成后，目标设置出现在 **Plugins → dsh-better-goal → dsh-better-goal 行**。
 
 > **安装或升级后要重启对应的 DSH profile。** 刷新网页只会重载界面，不会替换正在运行的实现；插件也不会自动修改你当前打开的 GUI。
 
