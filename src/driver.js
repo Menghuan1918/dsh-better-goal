@@ -19,7 +19,7 @@ Round: ${round}/${limit}
 
 Continue working toward the complete objective. Preserve its scope. Use todo_write for steps.
 Before completing, derive every requirement from the objective and referenced specifications, then inspect current files, command results, tests and runtime state to prove each requirement. Missing, weak or indirect evidence means work remains. Do not substitute partial progress, intent, memory or merely passing unrelated checks for completion.
-If all requirements are proven, call goal(action: "complete", goal_id, revision). If a concrete blocker prevents meaningful progress, call goal(action: "fail", goal_id, revision, reason) immediately; do not repeat blocked rounds just to reach a count. Otherwise continue the work. Read the goal for its current id/revision before a mutation. You can explicitly control all goal states through this one tool.
+If all requirements are proven, call goal(action: "complete"). If a concrete blocker prevents meaningful progress, call goal(action: "fail", reason) immediately; do not repeat blocked rounds just to reach a count. Otherwise continue the work. Use goal(action: "get") to inspect the objective and goal(action: "resume") to continue it after stopping. Use goal(action: "set", objective) only to intentionally replace the whole objective, not to bypass limits or discard unfinished scope. IDs and revisions are managed internally.
 </goal_round>` }];
 }
 //#endregion

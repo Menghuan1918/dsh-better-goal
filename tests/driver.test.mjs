@@ -88,7 +88,11 @@ test('continuation prompt preserves scope, evidence audit, immediate failure and
   assert.match(prompt, /1\/unlimited/)
   assert.match(prompt, /goal\(action: "complete"/)
   assert.match(prompt, /fail.*immediately/)
-  assert.doesNotMatch(prompt, /update_goal|create_goal/)
+  assert.doesNotMatch(prompt, /update_goal|create_goal|goal_id|current id\/revision/)
+  assert.match(prompt, /goal\(action: "get"\)/)
+  assert.match(prompt, /goal\(action: "resume"\)/)
+  assert.match(prompt, /goal\(action: "set", objective\)/)
+  assert.match(prompt, /not to bypass limits or discard unfinished scope/)
 })
 
 test('driver reserves exactly one round and requires its matching pre-step admission', async (t) => {

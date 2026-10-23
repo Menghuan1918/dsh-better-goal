@@ -27,7 +27,7 @@ await mkdir(modules, { recursive: true })
 // from the same runtime used by the host. No copied node_modules or .git.
 const plugin = join(modules, 'dsh-better-goal')
 await mkdir(plugin)
-for (const name of ['package.json', 'src', 'cordis.patch.yml', 'LICENSE', 'README.md', 'third-party']) {
+for (const name of ['package.json', 'src', 'docs', 'cordis.patch.yml', 'LICENSE', 'README.md', 'third-party']) {
   await cp(join(root, name), join(plugin, name), { recursive: true })
 }
 await symlink(dirname(dsh), join(modules, '@deepseek-ai'))
@@ -38,7 +38,7 @@ if (mode !== 'standalone') {
   const apolloRoot = resolve(process.env.APOLLO_PACKAGE_ROOT ?? join(root, '../dsh-apollo'))
   const apollo = join(modules, 'dsh-apollo')
   await mkdir(apollo)
-  for (const name of ['package.json', 'src', 'skills', 'presets', 'cordis.patch.yml', 'README.md', 'LICENSE', 'third-party']) await cp(join(apolloRoot, name), join(apollo, name), { recursive: true })
+  for (const name of ['package.json', 'src', 'docs', 'skills', 'presets', 'cordis.patch.yml', 'README.md', 'LICENSE', 'third-party']) await cp(join(apolloRoot, name), join(apollo, name), { recursive: true })
   manifest.dependencies['dsh-apollo'] = `file:${apollo}`
   // Transitive-only dependency path: a selected Apollo bundle discovers this
   // package through its dependency closure, not through selected goal bundles.
@@ -96,7 +96,11 @@ try {
   const created = await ctx.agents.create({ sessionId: randomUUID(), meta: { cwd: home, agentPreset: preset }, agentOptions: { provider: 'it-noop', model: 'noop' }, setup })
   const agent = created.agent
   assert.ok(ctx.get('goals'))
-  assert.ok(ctx.tools.get('goal', agent), 'unified tool must be visible')
+  const goalTool = ctx.tools.get('goal', agent)
+  assert.ok(goalTool, 'unified tool must be visible')
+  assert.deepEqual(goalTool.parameters.properties.action.enum, ['get', 'set', 'fail', 'complete', 'resume'])
+  assert.equal('goal_id' in goalTool.parameters.properties, false)
+  assert.equal('revision' in goalTool.parameters.properties, false)
   for (const name of ['get_goal', 'create_goal', 'update_goal']) assert.equal(ctx.tools.get(name, agent), undefined, name)
   assert.equal(ctx.commands.find(agent, 'goal')?.definitionId, 'dsh-better-goal')
   const plan = agent.ctx.get('planMode')
@@ -128,14 +132,12 @@ try {
   await rpc('clear', { agentId: agent.id, ref: { id: completedRpc.id, revision: completedRpc.revision } })
   assert.equal(await rpc('get', { agentId: agent.id }), undefined)
   plan.set(agent, false)
-  const control = (action, extra = {}) => () => {
-    const goal = ctx.goals.get(agent)
-    return { action, goal_id: goal.id, revision: goal.revision, ...extra }
-  }
+  const control = (action, extra = {}) => () => ({ action, ...extra })
   const lifecycle = [
-    () => ({ action: 'create', objective: 'Exercise real automatic goal continuation', max_goal_rounds: 2 }),
+    control('set', { objective: 'Establish the initial integration objective', max_goal_rounds: 2 }),
+    control('set', { objective: 'Exercise real automatic goal continuation', max_goal_rounds: 2 }),
     null,
-    control('pause'), control('resume'), control('fail', { reason: 'Integration blocker at the first goal round' }),
+    control('get'), control('fail', { reason: 'Integration blocker at the first goal round' }),
     control('resume'), control('complete'), null,
   ]
   const { createUserMessage } = await import(pathToFileURL(join(dirname(dsh), 'dsh-llm/lib/index.js')))
@@ -190,7 +192,7 @@ try {
     })
     assert.ok(ctx.tools.get('ask_user_question', agent), 'the selected preset provides questions')
     scripted = [
-      () => ({ action: 'create', objective: 'Verify hot goal settings and unanswered questions' }),
+      () => ({ action: 'set', objective: 'Verify hot goal settings and unanswered questions' }),
       () => ({ $tool: 'ask_user_question', timeout: -1, questions: [{ id: 'it-q', question: 'Integration question awaiting a later answer.' }] }),
       control('complete'), null,
     ]
@@ -254,6 +256,7 @@ try {
     assert.equal(ctx.tools.get('ask_user_question', noask), undefined, 'goal does not add a missing question tool')
   }
   const result = { passed: true, mode, hotSettings: hot, home, checks: ['real-profile-boot', 'single-goal-tool', 'legacy-tools-hidden', 'scoped-command', 'create-pause-resume-complete-clear', 'real-tool-dispatch', 'native-goal-rpc', 'automatic-round', 'cold-restore-disarmed', 'fork-disarmed', 'agent-full-state-control-without-human-input'] }
+  result.checks.push('five-action-model-schema', 'model-mutations-without-caller-refs')
   if (hot) result.checks.push('hot-settings-persisted-without-remount', 'first-request-schema-updated', 'pending-question-late-answer')
   if (mode !== 'standalone') result.checks.push('noask-preserved')
   await writeFile(join(home, 'results.json'), JSON.stringify(result, null, 2))
