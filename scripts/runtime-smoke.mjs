@@ -11,13 +11,15 @@ if (!dsh) throw new Error('Set DSH_PACKAGE_ROOT to the installed @deepseek-ai/ds
 const mode = process.env.GOAL_SMOKE_MODE ?? 'standalone'
 const hot = process.env.GOAL_SMOKE_HOT === '1'
 assert.ok(['standalone', 'apollo', 'both'].includes(mode))
+const apolloRoot = mode === 'standalone' ? undefined : resolve(process.env.APOLLO_PACKAGE_ROOT ?? join(root, '../dsh-apollo'))
+const apolloName = apolloRoot ? JSON.parse(await readFile(join(apolloRoot, 'package.json'), 'utf8')).name : undefined
 const home = await mkdtemp(join(tmpdir(), 'dsh-better-goal-smoke-'))
 process.env.DSH_HOME = home
 process.env.DSH_TELEMETRY_DISABLED = '1'
 const A = await import(pathToFileURL(join(dirname(dsh), 'dsh-app-boot/lib/index.js')))
 const { symbols } = await import(pathToFileURL(join(dirname(dsh), 'cordis/lib/index.js')))
 const dir = A.resolveProfileDir('it', home)
-const bundles = [...A.PROFILE_TEMPLATES.headless.bundles, ...(mode === 'standalone' ? ['dsh-better-goal'] : mode === 'apollo' ? ['dsh-apollo'] : ['dsh-apollo', 'dsh-better-goal'])]
+const bundles = [...A.PROFILE_TEMPLATES.headless.bundles, ...(mode === 'standalone' ? ['dsh-better-goal'] : mode === 'apollo' ? [apolloName] : [apolloName, 'dsh-better-goal'])]
 A.initProfile(dir, bundles)
 const packageFile = join(dir, 'package.json')
 const manifest = JSON.parse(await readFile(packageFile, 'utf8'))
@@ -35,11 +37,10 @@ await symlink(join(root, 'node_modules/zod'), join(modules, 'zod'))
 await symlink(join(root, 'node_modules/react'), join(modules, 'react'))
 manifest.dependencies['dsh-better-goal'] = `file:${plugin}`
 if (mode !== 'standalone') {
-  const apolloRoot = resolve(process.env.APOLLO_PACKAGE_ROOT ?? join(root, '../dsh-apollo'))
-  const apollo = join(modules, 'dsh-apollo')
-  await mkdir(apollo)
+  const apollo = join(modules, apolloName)
+  await mkdir(apollo, { recursive: true })
   for (const name of ['package.json', 'src', 'docs', 'skills', 'presets', 'cordis.patch.yml', 'README.md', 'LICENSE', 'third-party']) await cp(join(apolloRoot, name), join(apollo, name), { recursive: true })
-  manifest.dependencies['dsh-apollo'] = `file:${apollo}`
+  manifest.dependencies[apolloName] = `file:${apollo}`
   // Transitive-only dependency path: a selected Apollo bundle discovers this
   // package through its dependency closure, not through selected goal bundles.
   if (mode === 'apollo') delete manifest.dependencies['dsh-better-goal']

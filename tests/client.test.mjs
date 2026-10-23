@@ -29,6 +29,8 @@ const SESSION_ID = 'session-1'
 const UNLIMITED = UNLIMITED_ROUNDS
 /** The row-config key the Plugins page derives for Apollo's declaring bundle. */
 const APOLLO_ROW_CONFIG_KEY = 'dsh-apollo#dsh-better-goal'
+/** The row-config key for Apollo's published scoped package. */
+const SCOPED_APOLLO_ROW_CONFIG_KEY = '@menghuan1918/dsh-apollo#dsh-better-goal'
 const SOURCE = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8')
 
 /** Fake t: keeps keys and parameters visible without depending on copy. */
@@ -255,7 +257,7 @@ const pageText = (renderer) => allText(renderer.toJSON())
 
 // ── closure wiring ─────────────────────────────────────────────────────────
 
-test('closure id, injected services, dictionaries, and both slot registrations', () => {
+test('closure id, injected services, dictionaries, and every slot registration', () => {
   const setup = install()
   assert.equal(setup.entry.id, ENTRY_ID)
   assert.deepEqual(setup.exports.inject, ['slots', 'sessions', 'remote', 'remote.goals', 'locale'])
@@ -283,12 +285,14 @@ test('closure id, injected services, dictionaries, and both slot registrations',
   assert.equal(PACKAGE_NAME, 'dsh-better-goal')
   assert.deepEqual(
     rows.map((entry) => entry.options.key).sort(),
-    [APOLLO_ROW_CONFIG_KEY, ROW_CONFIG_KEY].sort(),
+    [APOLLO_ROW_CONFIG_KEY, ROW_CONFIG_KEY, SCOPED_APOLLO_ROW_CONFIG_KEY].sort(),
   )
-  assert.equal(rows[0].component, rows[1].component, 'one entry component serves both keys')
-  assert.equal(rows[0].options.locale, 'better-goal')
-  assert.equal(rows[1].options.locale, 'better-goal')
-  assert.equal(setup.slots.registrations.length, 3)
+  assert.equal(new Set(rows.map((entry) => entry.options.key)).size, rows.length, 'one entry per exact key')
+  for (const row of rows) {
+    assert.equal(row.component, rows[0].component, 'one entry component serves every key')
+    assert.equal(row.options.locale, 'better-goal')
+  }
+  assert.equal(setup.slots.registrations.length, 4)
 })
 
 // ── GoalBar ────────────────────────────────────────────────────────────────
@@ -557,60 +561,84 @@ async function mountSettings(options = {}) {
   }
 }
 
-test('standalone and Apollo row-config keys dispatch the same page over the same config store', async () => {
+function rowConfigEntries(setup) {
+  return setup.slots.registrations.filter((entry) => entry.options.name === 'plugins.row.config')
+}
+
+/** Resolve one keyed slot the way the Plugins page does: exact key equality. */
+function dispatchRowConfig(setup, key) {
+  const matches = rowConfigEntries(setup).filter((entry) => entry.options.key === key)
+  assert.equal(matches.length, 1, `exactly one keyed entry for ${key}`)
+  return matches[0]
+}
+
+async function mountConfigEntry(record, controller) {
+  const form = () => ({
+    state: controller.getSnapshot(),
+    mutate: (ops, revision) => controller.mutate(ops, revision),
+  })
+  const element = () => h(record.component, { view: 'page', t, form: form() })
+  let renderer = null
+  await act(async () => { renderer = TestRenderer.create(element()) })
+  return {
+    get renderer() { return renderer },
+    async update() { await act(async () => { renderer.update(element()) }) },
+  }
+}
+
+test('three exact row-config keys are unique and each dispatches one shared entry', () => {
   const setup = install()
   setup.declare('plugins.row.config')
-  const rows = setup.slots.registrations.filter((entry) => entry.options.name === 'plugins.row.config')
-  assert.equal(rows.length, 2)
-  const byKey = new Map(rows.map((entry) => [entry.options.key, entry]))
-  const standalone = byKey.get(ROW_CONFIG_KEY)
-  const apollo = byKey.get(APOLLO_ROW_CONFIG_KEY)
-  assert.ok(standalone, 'standalone bundle key registered')
-  assert.ok(apollo, 'Apollo declaring-bundle key registered')
-  assert.equal(standalone.component, apollo.component, 'both keys dispatch to the same slot component')
-  assert.equal(standalone.options.locale, 'better-goal')
-  assert.equal(apollo.options.locale, 'better-goal')
+  const expected = [ROW_CONFIG_KEY, APOLLO_ROW_CONFIG_KEY, SCOPED_APOLLO_ROW_CONFIG_KEY]
+  const rows = rowConfigEntries(setup)
+  assert.equal(rows.length, 3, 'each assembly variant registers one row-config entry')
+  assert.deepEqual(rows.map((entry) => entry.options.key).sort(), [...expected].sort())
+  assert.equal(new Set(rows.map((entry) => entry.options.key)).size, 3, 'the three keys never collide')
+  for (const key of expected) {
+    const entry = dispatchRowConfig(setup, key)
+    assert.equal(entry.options.locale, 'better-goal')
+    assert.equal(entry.component, dispatchRowConfig(setup, expected[0]).component)
+  }
+})
+
+test('standalone, legacy Apollo, and scoped Apollo keys dispatch the same page over one config store', async () => {
+  const setup = install()
+  setup.declare('plugins.row.config')
+  const keys = [ROW_CONFIG_KEY, APOLLO_ROW_CONFIG_KEY, SCOPED_APOLLO_ROW_CONFIG_KEY]
+  const entries = keys.map((key) => dispatchRowConfig(setup, key))
+  assert.equal(new Set(entries.map((entry) => entry.component)).size, 1)
 
   // One host form controller stands in for the single plugin row config store.
   const controller = makeConfigForm({
     value: { roundLimitMode: 'agent', roundLimit: 256, questionTimeoutSeconds: 120 },
   })
-  const form = () => ({
-    state: controller.getSnapshot(),
-    mutate: (ops, revision) => controller.mutate(ops, revision),
-  })
-  const mount = async (record) => {
-    const element = () => h(record.component, { view: 'page', t, form: form() })
-    let renderer = null
-    await act(async () => { renderer = TestRenderer.create(element()) })
-    return {
-      get renderer() { return renderer },
-      async update() { await act(async () => { renderer.update(element()) }) },
-    }
+  const pages = new Map()
+  for (const [index, key] of keys.entries()) pages.set(key, await mountConfigEntry(entries[index], controller))
+  for (const key of keys) {
+    assert.equal(byId(pages.get(key).renderer, 'dsh-better-goal-round-limit-mode').props.value, 'agent')
   }
-  const apolloPage = await mount(apollo)
-  const standalonePage = await mount(standalone)
-  assert.equal(byId(apolloPage.renderer, 'dsh-better-goal-round-limit-mode').props.value, 'agent')
-  assert.equal(byId(standalonePage.renderer, 'dsh-better-goal-round-limit-mode').props.value, 'agent')
+  assert.equal(controller.calls.length, 0, 'three mounted keys neither activate nor write the shared store')
 
-  // A save through the Apollo key writes the shared form.
+  // A save through the scoped Apollo key writes the shared form exactly once.
+  const scoped = pages.get(SCOPED_APOLLO_ROW_CONFIG_KEY)
   await act(async () => {
-    byId(apolloPage.renderer, 'dsh-better-goal-round-limit-mode').props.onChange({ target: { value: 'fixed' } })
+    byId(scoped.renderer, 'dsh-better-goal-round-limit-mode').props.onChange({ target: { value: 'fixed' } })
   })
   await act(async () => {
-    byId(apolloPage.renderer, 'dsh-better-goal-round-limit').props.onChange({ target: { value: '512' } })
+    byId(scoped.renderer, 'dsh-better-goal-round-limit').props.onChange({ target: { value: '512' } })
   })
-  await act(async () => { primaryButton(apolloPage.renderer).props.onClick() })
-  assert.deepEqual(controller.calls, [{
+  await act(async () => { primaryButton(scoped.renderer).props.onClick() })
+  assert.equal(controller.calls.length, 1, 'one click writes once, not once per registered key')
+  assert.deepEqual(controller.calls[0], {
     ops: [
       { op: 'set', path: ['roundLimitMode'], value: 'fixed' },
       { op: 'set', path: ['roundLimit'], value: 512 },
     ],
     revision: 3,
-  }])
+  })
   await act(async () => { controller.finish(true); await Promise.resolve() })
 
-  // The host mirror's next revision reaches the standalone-key page unchanged.
+  // The host mirror's next revision reaches every keyed page unchanged.
   controller.getSnapshot = () => ({
     status: 'ready',
     value: { roundLimitMode: 'fixed', roundLimit: 512, questionTimeoutSeconds: 120 },
@@ -619,15 +647,19 @@ test('standalone and Apollo row-config keys dispatch the same page over the same
     revision: 4,
     writable: true,
   })
-  await standalonePage.update()
-  assert.equal(byId(standalonePage.renderer, 'dsh-better-goal-round-limit-mode').props.value, 'fixed')
-  assert.equal(byId(standalonePage.renderer, 'dsh-better-goal-round-limit').props.value, '512')
+  for (const key of keys) await pages.get(key).update()
+  for (const key of keys) {
+    assert.equal(byId(pages.get(key).renderer, 'dsh-better-goal-round-limit-mode').props.value, 'fixed')
+    assert.equal(byId(pages.get(key).renderer, 'dsh-better-goal-round-limit').props.value, '512')
+  }
 
   // A save through the standalone key writes the same shared form.
+  const standalone = pages.get(ROW_CONFIG_KEY)
   await act(async () => {
-    byId(standalonePage.renderer, 'dsh-better-goal-question-timeout').props.onChange({ target: { value: '-1' } })
+    byId(standalone.renderer, 'dsh-better-goal-question-timeout').props.onChange({ target: { value: '-1' } })
   })
-  await act(async () => { primaryButton(standalonePage.renderer).props.onClick() })
+  await act(async () => { primaryButton(standalone.renderer).props.onClick() })
+  assert.equal(controller.calls.length, 2)
   assert.deepEqual(controller.calls[1], {
     ops: [{ op: 'set', path: ['questionTimeoutSeconds'], value: -1 }],
     revision: 4,

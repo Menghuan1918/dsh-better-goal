@@ -144,15 +144,26 @@ GoalBar 不新建 goal，只通过正式 `remote.goals` RPC 做编辑、暂停�
 
 这是 README 只保留一句提示、本文档保留完整原理的部分。
 
-Apollo 在 `package.json` 中把 `dsh-better-goal` 声明为运行时依赖，并以 commit 固定版本；它的顶层 patch 自己插入了 `id/name` 都是 `dsh-better-goal` 的行。独立包也插入同一行。
+Apollo 在 `package.json` 中把 `dsh-better-goal` 声明为精确 npm 依赖 `0.1.0`（不是 Git commit、分支、范围或 `file:` 说明符）；它的顶层 patch 自己插入了 `id/name` 都是 `dsh-better-goal` 的行。独立包也插入同一行。
 
 - 两个 bundle 同时被显式选中时，DSH Loader 按行 id 去重，通常只激活一个实例，浏览器模块也只有一个 active source。
 - 但 DSH `0.2.1-rc.2` 的插件管理器会把组合行开关标成只读（`unaddressable`），配置编辑器也可能拒绝保存目标设置。
 - 这不是两个服务同时运行，也不是通过修改 DSH 核心可以安全绕过的行为；推荐只保留 Apollo 入口，不重复 add。
-- [src/client.js](../src/client.js) 同时注册 `dsh-better-goal#dsh-better-goal` 和 `dsh-apollo#dsh-better-goal` 两个 row-config key，让两种装配都能找到同一个设置页，但底层仍是同一份配置和同一个行 id。
+- [src/client.js](../src/client.js) 注册三个 row-config key：`dsh-better-goal#dsh-better-goal`（独立安装）、`@menghuan1918/dsh-apollo#dsh-better-goal`（scoped Apollo）和 `dsh-apollo#dsh-better-goal`（历史 Apollo）。三者指向同一个设置页、同一份配置和同一个行 id。
+- Apollo 自身的 `apollo-skills` 行用 `@menghuan1918/dsh-apollo#apollo-skills`，并保留 `dsh-apollo#apollo-skills` 旧键；两键同样指向同一行配置。行 id、预设 ID 和 CLI 路由不随包名改名。
 - 如果只需要临时开关有效行，可在 profile 覆盖中写 `id: dsh-better-goal`、`disabled: true`；不要写成 `id: goal, disabled: false`，那会启用原生 goal 服务。
 
-## 开发安装
+## 安装与开发
+
+### npm 安装
+
+```sh
+dsh plugin --profile <profile> add dsh-better-goal@0.1.0
+```
+
+npm 安装后，目标设置出现在 **Plugins → dsh-better-goal → dsh-better-goal 行**。GitHub main 仍保留为源码安装选项。
+
+### 本地 link 安装
 
 ```sh
 # 在仓库根目录安装依赖
@@ -164,7 +175,7 @@ dsh plugin --profile <profile> add link:/absolute/path/to/dsh-better-goal
 
 链接后要重启 profile；运行时三个设置字段仍然支持保存后热更新。
 
-Apollo 本地开发时，先在其根目录执行 `npm install`。`dsh plugin add link:` 只链接 Apollo 本身，不代装依赖；Apollo 的依赖目前固定到独立仓库的 commit，本地联调可临时改成 `file:../dsh-better-goal`。
+Apollo 本地开发时，先在其根目录执行 `npm install`。`dsh plugin add link:` 只链接 Apollo 本身，不代装依赖；Apollo 的依赖是精确 npm 版本 `dsh-better-goal@0.1.0`，本地联调可临时改成 `file:../dsh-better-goal`，但不要提交该改动。GitHub 源码安装同样从 registry 解析这个精确版本。
 
 ## 测试与宿主冒烟
 
@@ -198,6 +209,13 @@ GOAL_SMOKE_MODE=both DSH_PACKAGE_ROOT=/path/to/node_modules/@deepseek-ai/dsh npm
 
 未覆盖：PTC 工具呈现模式、其他自定义提问工具、当前浏览器 GUI 的人工验收。单元测试或冒烟通过都不代表这些场景已验证。
 
+## npm 首发
+
+1. 先人工发布本包 `0.1.0` tarball 到 `https://registry.npmjs.org/`，`access` 为 `public`。
+2. 在官方 registry 验证 `dsh-better-goal@0.1.0` 可取得，再人工发布 Apollo `@menghuan1918/dsh-apollo@0.3.0`；Apollo 的发布目标同样是 `https://registry.npmjs.org/`，`access` 为 `public`。
+3. 登录、2FA 和 publish 由维护者在真实终端完成；OTP、token 和恢复码不写入脚本、环境文件或仓库。
+4. 在本包发布并验证通过前，不要让 Apollo 的 `package.json` 精确依赖 `0.1.0` 进入 main；否则 GitHub 源码安装会 404。
+
 ## 卸载、禁用与回退
 
 独立安装：
@@ -206,11 +224,13 @@ GOAL_SMOKE_MODE=both DSH_PACKAGE_ROOT=/path/to/node_modules/@deepseek-ai/dsh npm
 dsh plugin --profile <profile> remove dsh-better-goal
 ```
 
-Apollo 安装：
+Apollo 安装（scoped）：
 
 ```sh
-dsh plugin --profile <profile> remove dsh-apollo
+dsh plugin --profile <profile> remove @menghuan1918/dsh-apollo
 ```
+
+旧 unscoped Apollo 安装使用 `remove dsh-apollo`。
 
 - 禁用或移除独立 bundle **不等于**移除 Apollo 插入的 `dsh-better-goal` 行；只要 Apollo 仍在装配，goal 能力仍然存在。
 - 要彻底移除 goal 能力，需要移除 Apollo，或显式禁用该行，然后重启 profile。

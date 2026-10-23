@@ -40,14 +40,17 @@ window.__ModuleLoader__.load({
     const ROW_KEY = 'dsh-better-goal#dsh-better-goal'
     /**
      * Apollo's bundle patch re-declares the same top-level row. The Plugins page
-     * keys a row's configuration by its declaring bundle and row id, so the
-     * Apollo-only assembly looks the page up as `dsh-apollo#dsh-better-goal`.
-     * Registering the same page under both exact keys keeps the independent
-     * plugin's config namespace and store unchanged in either assembly.
+     * keys a row's configuration by its declaring bundle and row id, so an
+     * Apollo-only assembly looks the page up as `<apollo package>#dsh-better-goal`.
+     * The unscoped name is kept for historical assemblies; the published package
+     * is scoped. Registering the same page under every exact key keeps the
+     * independent plugin's config namespace and store unchanged in any assembly.
      */
     const APOLLO_ROW_KEY = 'dsh-apollo#dsh-better-goal'
-    /** Both assemblies' `plugins.row.config` keys, in dispatch order. */
-    const ROW_CONFIG_KEYS = Object.freeze([ROW_KEY, APOLLO_ROW_KEY])
+    /** Apollo's published scoped package name declares the same row. */
+    const SCOPED_APOLLO_ROW_KEY = '@menghuan1918/dsh-apollo#dsh-better-goal'
+    /** Every assembly's `plugins.row.config` key, in dispatch order. */
+    const ROW_CONFIG_KEYS = Object.freeze([ROW_KEY, APOLLO_ROW_KEY, SCOPED_APOLLO_ROW_KEY])
     const ROUND_LIMIT_MODES = Object.freeze(['agent', 'unlimited', 'fixed'])
     const DEFAULT_ROUND_LIMIT = 256
     const DEFAULT_QUESTION_TIMEOUT_SECONDS = 120
