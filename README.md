@@ -7,6 +7,7 @@
 <p>替换 DSH 原生 goal：保留持久目标与自动续跑，补上即时失败停止、可控的提问等待和更简单的目标操作。步骤仍然交给 <code>todo_write</code>。</p>
 
 <p>
+  <a href="https://www.npmjs.com/package/dsh-better-goal"><img src="https://img.shields.io/npm/v/dsh-better-goal.svg" alt="npm 版本"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" alt="许可证：GPL-3.0"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/DSH-0.2.1--rc.2_%3C0.3.0-6f42c1.svg" alt="DSH 0.2.1-rc.2 至 0.3.0 之前"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/node-%5E22.19_%7C%7C_%3E%3D24-339933.svg" alt="Node.js ^22.19.0 或 >=24.0.0"></a>
@@ -61,25 +62,31 @@ flowchart TD
 
 需要 [DSH](https://github.com/deepseek-ai/deepseek-harness) `>=0.2.1-rc.2 <0.3.0` 和 Node.js `^22.19.0 || >=24.0.0`。无构建步骤。
 
-### 已经用 Apollo（推荐）
+### 通过 Apollo 安装（推荐）
 
-[Apollo](https://github.com/Menghuan1918/dsh-apollo) 已经把 `dsh-better-goal` 作为依赖装配，因此**不需要再安装一次**。只保留 Apollo 入口即可；目标设置会出现在 **Plugins → @menghuan1918/dsh-apollo → dsh-better-goal 行**。
-
-Apollo 是包含流程技能、工程模式和本插件的集合，goal 是其中一个独立子插件。
-
-旧版通过 GitHub 安装的 Apollo 可能仍把设置行显示为 `dsh-apollo`；升级到 `@menghuan1918/dsh-apollo` 后以 scoped 路径为准，已有配置和 `/goal` 不变。
-
-### 只想要持久目标（独立安装）
+[Apollo](https://github.com/Menghuan1918/dsh-apollo)（[npm 包](https://www.npmjs.com/package/@menghuan1918/dsh-apollo)）是包含流程技能、工程模式和本插件的集合，goal 是其中一个独立子插件。从 npm 安装 Apollo 会自动带入 `dsh-better-goal`，**不需要再安装一次**：
 
 ```sh
-# npm 安装
+dsh plugin --profile <profile> add @menghuan1918/dsh-apollo@0.3.0
+```
+
+安装后，目标设置出现在 **Plugins → @menghuan1918/dsh-apollo → dsh-better-goal 行**。只保留 Apollo 入口即可。
+
+旧版通过 GitHub 安装的 Apollo，在 Plugins 里仍显示为 `dsh-apollo`；迁移到 `@menghuan1918/dsh-apollo` 时先移除旧入口，再安装新包。会话记录保留，`/goal` 用法不变；迁移后请检查插件设置。
+
+### 只安装目标插件（独立安装）
+
+如果不需要 Apollo，可从 npm 单独安装本插件：
+
+```sh
+# npm 安装（推荐）
 dsh plugin --profile <profile> add dsh-better-goal@0.1.0
 
-# 或从 GitHub main 源码安装
+# 或从 GitHub main 源码安装（次入口）
 dsh plugin --profile <profile> add github:Menghuan1918/dsh-better-goal
 ```
 
-完成后，目标设置出现在 **Plugins → dsh-better-goal → dsh-better-goal 行**。
+完成后，目标设置出现在 **Plugins → dsh-better-goal → dsh-better-goal 行**。npm 包页面：[dsh-better-goal](https://www.npmjs.com/package/dsh-better-goal)。
 
 > **安装或升级后要重启对应的 DSH profile。** 刷新网页只会重载界面，不会替换正在运行的实现；插件也不会自动修改你当前打开的 GUI。
 
@@ -153,7 +160,7 @@ flowchart TD
 
 ## 设置
 
-打开 **Plugins → dsh-better-goal → dsh-better-goal 行**；由 Apollo 装配时，打开 **Plugins → @menghuan1918/dsh-apollo → dsh-better-goal 行**。两处操作同一份配置。保存后立即生效，不需要重启。
+打开 **Plugins → dsh-better-goal → dsh-better-goal 行**；由 `@menghuan1918/dsh-apollo` 装配时，打开 **Plugins → @menghuan1918/dsh-apollo → dsh-better-goal 行**。两处操作同一份配置。保存后立即生效，不需要重启。
 
 ### 默认设置速览
 
@@ -220,7 +227,7 @@ flowchart TD
 <details>
 <summary><strong>设置在哪里？保存后要重启吗？</strong></summary>
 
-独立安装时在 **Plugins → dsh-better-goal → dsh-better-goal 行**；由 Apollo 装配时在 **Plugins → @menghuan1918/dsh-apollo → dsh-better-goal 行**。三个运行时设置保存后立即生效，不需要重启。安装、升级或改动插件组合后仍需重启 DSH profile。
+独立安装时在 **Plugins → dsh-better-goal → dsh-better-goal 行**；由 `@menghuan1918/dsh-apollo` 装配时在 **Plugins → @menghuan1918/dsh-apollo → dsh-better-goal 行**。三个运行时设置保存后立即生效，不需要重启。安装、升级或改动插件组合后仍需重启 DSH profile。
 
 </details>
 
