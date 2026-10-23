@@ -56,6 +56,17 @@
 - 下调有效上限时，服务层的 `edit` 会拒绝低于已执行轮数的上限；如果运行中的 `fixed` 配置低于已用轮数，驱动会以 `round-limit` 阻塞目标，而不是把 `roundsStarted` 写回更小的值。
 - 切换装配或回退时，不要让两个 goal 状态服务或两个续跑驱动同时工作。
 
+## 原生 Goal 对比的核验边界
+
+用户 README 的对比以本项目验证基线 DSH `0.2.1-rc.2` 的默认装配为准，核对了该版本的 `dsh-tool-goal`、`dsh-goal-round-driver`、`dsh-goal`、`dsh-tool-ask-user` 发布代码及 standard 预设。公开规则见[原生 Goal 工具说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/goal/tool-goal/README.md)；该链接跟随上游演进，不代替已验证版本。
+
+- 原生并非没有停止路径：模型可 `complete` 或在满足门槛后 `blocked`，用户还可暂停、清除；不能把它描述成绝对无法终止或必然无限运行。
+- 原生自主目标轮次不具备 direct-human authority，不能主动 `pause`；`blocked` 默认在 `roundsStarted < 3` 时被拒绝。文档要求同一阻塞持续多个轮次，代码门槛实际比较累计目标轮数，不证明每轮都是同一阻塞。README 因此只说“默认至少经过 3 个目标轮次”。
+- 原生模型的 `resume` 需要直接人类请求，且拒绝恢复 durable paused 状态；该状态由用户 Web 或 `/goal resume` 路径恢复。本插件不保留这些人类授权门槛，但保留目标状态与预算校验。
+- 原生默认轮数上限是 256，达到有效上限后 driver 会记录 `round-limit` 并停续；可配置的轮数上限不是固定值，也不是提问等待的时间上限。
+- 原生 `ask_user_question` 默认是阻塞式 legacy 模式；timed 是同一工具已有的可选模式，默认 120 秒且支持 `-1`。本插件并不独占 pending / late-answer 能力，而是在 active + armed 目标中统一应用用户配置的等待策略。
+- 目标持久化、自动续跑、用户暂停、重开或 fork 后 disarm 都是原生已有能力，不应写成本插件相对原生的独有优势。
+
 ## 单工具与动作契约
 
 模型侧只注册一个名为 `goal` 的工具，最终动作集合为 `get` / `set` / `fail` / `complete` / `resume`。工具参数不接受 `goal_id` / `revision`；工具内部读取当前目标并生成引用，服务层仍执行 revision-based CAS。返回值保留只读的原生目标视图，模型不需要管理其中的 ID 和 revision。
