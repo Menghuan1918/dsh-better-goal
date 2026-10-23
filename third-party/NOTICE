@@ -1,0 +1,14 @@
+Third-party notices
+
+Parts of src/service.js, src/driver.js, src/ask-user.js, and the goal activation
+observation and DSH integration patterns in src/client.js are adapted from
+DeepSeek Harness 0.2.1-rc.2:
+https://github.com/deepseek-ai/deepseek-harness
+
+Copyright (c) 2026 DeepSeek
+Licensed under the MIT License; the complete license is included in
+LICENSE-MIT-dsh.
+
+The lifecycle and completion-audit design also references pi-atlas's goal/target
+extension and the Codex goal extension. This package keeps one goal separately
+from the host's existing TODO list and uses its own continuation instruction.

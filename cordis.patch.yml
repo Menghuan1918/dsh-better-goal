@@ -1,0 +1,18 @@
+# Replace the native host goal domain, driver and UI. Scoped legacy tools are
+# hidden by the replacement for every newly created Agent.
+- id: goal
+  disabled: true
+- id: goal-round-driver
+  disabled: true
+- id: command-goal
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: ui-goal
+  disabled: true
+
+# This exact top-level identity is also inserted by Apollo. Loader row IDs
+# deduplicate independently selected bundles before host/client activation.
+- insert:
+    - id: dsh-better-goal
+      name: dsh-better-goal
