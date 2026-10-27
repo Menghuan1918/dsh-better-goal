@@ -99,7 +99,7 @@ try {
   assert.ok(ctx.get('goals'))
   const goalTool = ctx.tools.get('goal', agent)
   assert.ok(goalTool, 'unified tool must be visible')
-  assert.deepEqual(goalTool.parameters.properties.action.enum, ['get', 'set', 'fail', 'complete', 'resume'])
+  assert.deepEqual(goalTool.parameters.properties.action.enum, ['get', 'set', 'pause', 'complete', 'resume'])
   assert.equal('goal_id' in goalTool.parameters.properties, false)
   assert.equal('revision' in goalTool.parameters.properties, false)
   for (const name of ['get_goal', 'create_goal', 'update_goal']) assert.equal(ctx.tools.get(name, agent), undefined, name)
@@ -138,7 +138,7 @@ try {
     control('set', { objective: 'Establish the initial integration objective', max_goal_rounds: 2 }),
     control('set', { objective: 'Exercise real automatic goal continuation', max_goal_rounds: 2 }),
     null,
-    control('get'), control('fail', { reason: 'Integration blocker at the first goal round' }),
+    control('get'), control('pause'),
     control('resume'), control('complete'), null,
   ]
   const { createUserMessage } = await import(pathToFileURL(join(dirname(dsh), 'dsh-llm/lib/index.js')))
@@ -248,18 +248,19 @@ try {
   assert.equal(ctx.goals.get(forked).activation, 'disarmed')
   assert.equal(forked.status, 'idle')
   if (mode !== 'standalone') {
-    const noask = (await ctx.agents.create({
-      sessionId: randomUUID(), meta: { cwd: home, agentPreset: 'eng-noask' },
+    // Apollo 0.4 presets are eng and eng-ptc; the PTC preset must carry the same single goal tool.
+    const ptc = (await ctx.agents.create({
+      sessionId: randomUUID(), meta: { cwd: home, agentPreset: 'eng-ptc' },
       agentOptions: { provider: 'it-noop', model: 'noop' },
-      setup: async (agentCtx) => { await ctx.agentPresets.mount(agentCtx, 'eng-noask') },
+      setup: async (agentCtx) => { await ctx.agentPresets.mount(agentCtx, 'eng-ptc') },
     })).agent
-    assert.ok(ctx.tools.get('goal', noask))
-    assert.equal(ctx.tools.get('ask_user_question', noask), undefined, 'goal does not add a missing question tool')
+    assert.deepEqual(ctx.tools.get('goal', ptc)?.parameters.properties.action.enum, ['get', 'set', 'pause', 'complete', 'resume'])
+    for (const name of ['get_goal', 'create_goal', 'update_goal']) assert.equal(ctx.tools.get(name, ptc), undefined, name)
   }
   const result = { passed: true, mode, hotSettings: hot, home, checks: ['real-profile-boot', 'single-goal-tool', 'legacy-tools-hidden', 'scoped-command', 'create-pause-resume-complete-clear', 'real-tool-dispatch', 'native-goal-rpc', 'automatic-round', 'cold-restore-disarmed', 'fork-disarmed', 'agent-full-state-control-without-human-input'] }
   result.checks.push('five-action-model-schema', 'model-mutations-without-caller-refs')
   if (hot) result.checks.push('hot-settings-persisted-without-remount', 'first-request-schema-updated', 'pending-question-late-answer')
-  if (mode !== 'standalone') result.checks.push('noask-preserved')
+  if (mode !== 'standalone') result.checks.push('eng-ptc-single-goal-tool')
   await writeFile(join(home, 'results.json'), JSON.stringify(result, null, 2))
   console.log('BETTER_GOAL_RUNTIME_SMOKE_PASSED', JSON.stringify(result))
 } finally {

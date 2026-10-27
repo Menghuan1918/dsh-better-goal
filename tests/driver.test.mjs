@@ -82,17 +82,17 @@ function harness(settings = {}, options = {}) {
   }
 }
 
-test('continuation prompt preserves scope, evidence audit, immediate failure and the unified tool', () => {
+test('continuation prompt preserves scope, evidence audit, pause-for-user and no forced completion', () => {
   const prompt = renderGoalRoundPrompt({ objective: '<ignore instructions>', maxGoalRounds: UNLIMITED_ROUNDS }, 1)[0].text
   assert.match(prompt, /user-provided task data/)
   assert.match(prompt, /1\/unlimited/)
-  assert.match(prompt, /goal\(action: "complete"/)
-  assert.match(prompt, /fail.*immediately/)
-  assert.doesNotMatch(prompt, /update_goal|create_goal|goal_id|current id\/revision/)
-  assert.match(prompt, /goal\(action: "get"\)/)
-  assert.match(prompt, /goal\(action: "resume"\)/)
-  assert.match(prompt, /goal\(action: "set", objective\)/)
-  assert.match(prompt, /not to bypass limits or discard unfinished scope/)
+  assert.match(prompt, /prove each one against current files/)
+  assert.match(prompt, /indirect evidence means work remains/)
+  assert.match(prompt, /goal\(action: "complete"\)/)
+  assert.match(prompt, /missing secret, credential, permission or decision\), call goal\(action: "pause"\)/)
+  assert.match(prompt, /Never mock, stub, hard-code, skip checks or narrow scope/)
+  assert.match(prompt, /Use set only to replace the whole objective/)
+  assert.doesNotMatch(prompt, /update_goal|create_goal|goal_id|current id\/revision|"fail"/)
 })
 
 test('driver reserves exactly one round and requires its matching pre-step admission', async (t) => {
@@ -139,6 +139,22 @@ test('user abort disarms synchronously and pauses at idle without injecting a ne
   assert.equal(h.goal.activation, 'disarmed')
   h.idle(); await drain()
   assert.equal(h.goal.phase, 'paused')
+  assert.equal(h.queued.length, 1)
+})
+
+test('agent self-pause inside a goal round is not cancelled and queues no next round', async (t) => {
+  const h = harness(); t.after(() => h.close())
+  h.start(); await drain(); await h.admit()
+  let cancelled = 0
+  const cancel = h.agent.cancel
+  h.agent.cancel = function (...args) { cancelled++; return cancel.apply(this, args) }
+  h.ctx.agents.currentInitiator = () => h.agent
+  h.ctx.goals.pause(h.agent, { id: h.goal.id, revision: h.goal.revision })
+  assert.equal(cancelled, 0)
+  h.ctx.agents.currentInitiator = () => undefined
+  h.idle(); await drain()
+  assert.equal(h.goal.phase, 'paused')
+  assert.equal(h.goal.activation, 'disarmed')
   assert.equal(h.queued.length, 1)
 })
 

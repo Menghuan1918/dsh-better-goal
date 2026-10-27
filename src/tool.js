@@ -3,7 +3,7 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { resolveRoundLimit } from './config.js'
 
 export const LEGACY_GOAL_TOOLS = ['get_goal', 'create_goal', 'update_goal']
-export const GOAL_ACTIONS = ['get', 'set', 'fail', 'complete', 'resume']
+export const GOAL_ACTIONS = ['get', 'set', 'pause', 'complete', 'resume']
 
 export function goalRef(goal) {
   return { id: goal.id, revision: goal.revision }
@@ -47,7 +47,6 @@ export function liveGoalAgent(ctx, exec) {
 function stripStrictFiller(args) {
   const normalized = { ...args }
   if (normalized.objective === '') delete normalized.objective
-  if (normalized.reason === '') delete normalized.reason
   if (normalized.max_goal_rounds === 0) delete normalized.max_goal_rounds
   return normalized
 }
@@ -65,13 +64,11 @@ export function executeGoalAction(ctx, agent, input, config) {
   const args = stripStrictFiller(input)
   if (!GOAL_ACTIONS.includes(args.action)) invalid('Unknown goal action')
   for (const key of Object.keys(args)) {
-    if (!['action', 'objective', 'reason', 'max_goal_rounds'].includes(key)) invalid(`Unknown goal parameter: ${key}`)
+    if (!['action', 'objective', 'max_goal_rounds'].includes(key)) invalid(`Unknown goal parameter: ${key}`)
   }
   if (args.action !== 'set' && args.objective !== undefined) invalid('objective is only valid for set')
-  if (args.action !== 'fail' && args.reason !== undefined) invalid('reason is only valid for fail')
   if (!['set', 'resume'].includes(args.action) && args.max_goal_rounds !== undefined) invalid('max_goal_rounds is only valid for set/resume')
   if (args.action === 'set' && (typeof args.objective !== 'string' || !args.objective.trim())) invalid('set requires a non-empty objective')
-  if (args.action === 'fail' && (typeof args.reason !== 'string' || !args.reason.trim())) invalid('fail requires a concrete reason')
   if (args.max_goal_rounds !== undefined && (!Number.isSafeInteger(args.max_goal_rounds) || args.max_goal_rounds < 1)) {
     throw new TypeError('max_goal_rounds must be a positive safe integer')
   }
@@ -100,22 +97,23 @@ export function executeGoalAction(ctx, agent, input, config) {
   }
   const ref = goalRef(current)
   if (args.action === 'complete') return { goal: goals.complete(agent, ref) }
-  return { goal: goals.block(agent, ref, { code: 'model-reported', message: args.reason }) }
+  // pause keeps the native record shape: no reason is stored; the agent states
+  // what it needs in its reply.
+  return { goal: goals.pause(agent, ref) }
 }
 
 /** Schema is refreshed between steps; the execution policy always reads live config. */
 export function createGoalTool(ctx, readConfig) {
   const parameters = {
-    action: { type: 'string', required: true, enum: GOAL_ACTIONS, description: 'Get the current goal, set a replacement goal, fail with a blocker, complete successfully, or resume continuation.' },
+    action: { type: 'string', required: true, enum: GOAL_ACTIONS, description: 'Get the current goal, set a replacement goal, pause continuation when the user is needed, complete with proof, or resume continuation.' },
     objective: { type: 'string', description: 'Required for set: the full replacement completion objective. Preserve the entire user-requested scope; set creates a fresh goal and resets its rounds.' },
-    reason: { type: 'string', description: 'Required for fail: the concrete blocker or reason the goal cannot be achieved.' },
   }
   if (readConfig().roundLimitMode === 'agent') parameters.max_goal_rounds = {
     type: 'integer', description: 'Optional positive safe-integer round cap for set/resume. On set, omission selects no policy cap; on resume, omission preserves the existing cap.',
   }
   return defineTool({
     name: 'goal',
-    description: 'Manage the persistent goal for this session. A goal is the overall objective; use todo_write for steps. Get reads it; set fully replaces it with a fresh armed goal; fail records a concrete blocker; complete records success; resume continues the same goal without requiring a new human message. Set/resume arm automatic continuation; ordinary session reopen/fork does not. Complete only after current evidence proves the entire objective. If external conditions or required human input prevent further meaningful work, fail immediately with a concrete reason. Never shrink an objective to claim completion.',
+    description: "Manage this session's persistent goal (the overall objective; use todo_write for steps). get reads it; set fully replaces it with a fresh armed goal; pause stops automatic continuation and keeps the goal resumable; resume continues it without a new human message; complete records verified success. Complete only when current evidence proves the entire objective. If progress needs the user (missing secret, credential, permission or decision), pause and say exactly what is needed; never fake, stub, skip or narrow work to finish.",
     parameters,
     output: {
       schema: { type: 'object', additionalProperties: true, properties: {} },

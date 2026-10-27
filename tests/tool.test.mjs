@@ -81,6 +81,11 @@ function admitGoalRound(h, goal, round = goal.roundsStarted + 1) {
   }), { surfaceOp: 'append' })
 }
 
+// The model can no longer block; blocked goals come from humans or the driver.
+function blockGoal(h, message) {
+  return h.ctx.goals.block(h.agent, nativeRef(h.getGoal()), { code: 'user-reported', message })
+}
+
 function command(h, rawInput, attachments) {
   return executeGoalCommand(h.ctx, { rawInput, agent: h.agent, attachments }, h.readLiveConfig)
 }
@@ -96,17 +101,19 @@ async function rejectsWithoutWrites(h, tool, args, check) {
 }
 
 test('model schema contains exactly five actions, no CAS, and agent-only optional cap', () => {
-  assert.deepEqual(GOAL_ACTIONS, ['get', 'set', 'fail', 'complete', 'resume'])
+  assert.deepEqual(GOAL_ACTIONS, ['get', 'set', 'pause', 'complete', 'resume'])
   for (const mode of ['agent', 'fixed', 'unlimited']) {
     const tool = createGoalTool({}, () => readConfig(config(mode, 7)))
     assert.equal(tool.name, 'goal')
-    assert.deepEqual(tool.parameters.properties.action.enum, ['get', 'set', 'fail', 'complete', 'resume'])
+    assert.deepEqual(tool.parameters.properties.action.enum, ['get', 'set', 'pause', 'complete', 'resume'])
     assert.deepEqual(Object.keys(tool.parameters.properties).sort(),
-      (mode === 'agent' ? ['action', 'objective', 'reason', 'max_goal_rounds'] : ['action', 'objective', 'reason']).sort())
+      (mode === 'agent' ? ['action', 'objective', 'max_goal_rounds'] : ['action', 'objective']).sort())
     assert.deepEqual(tool.parameters.required, ['action'])
     assert.ok(!('goal_id' in tool.parameters.properties))
     assert.ok(!('revision' in tool.parameters.properties))
     assert.match(tool.description, /fully replaces/)
+    assert.match(tool.description, /missing secret, credential, permission or decision\), pause/)
+    assert.match(tool.description, /never fake, stub, skip or narrow work/)
     assert.match(tool.parameters.properties.objective.description, /entire user-requested scope/)
   }
 })
@@ -133,7 +140,7 @@ for (const phase of ['active', 'paused', 'blocked', 'complete']) {
     const { goal: first } = await h.invoke(tool, { action: 'set', objective: scope, max_goal_rounds: 5 })
     admitGoalRound(h, first)
     if (phase === 'paused') h.ctx.goals.pause(h.agent, nativeRef(h.getGoal()))
-    if (phase === 'blocked') await h.invoke(tool, { action: 'fail', reason: 'A required credential is unavailable' })
+    if (phase === 'blocked') blockGoal(h, 'A required credential is unavailable')
     if (phase === 'complete') await h.invoke(tool, { action: 'complete' })
     const previous = h.getGoal()
     const offset = h.session.snapshotEvents().length
@@ -153,7 +160,7 @@ for (const phase of ['active', 'paused', 'blocked', 'complete']) {
   })
 }
 
-test('an automatic goal round can set, fail at round zero, resume and complete without human input', async (t) => {
+test('an automatic goal round can set, pause at round zero, resume and complete without human input', async (t) => {
   const h = await createHarness()
   t.after(() => h.close())
   const tool = h.makeTool()
@@ -161,11 +168,13 @@ test('an automatic goal round can set, fail at round zero, resume and complete w
   admitGoalRound(h, first)
   const { goal: fresh } = await h.invoke(tool, { action: 'set', objective: 'Initial scope with evidence', max_goal_rounds: 5 })
   assert.equal(fresh.roundsStarted, 0)
-  const { goal: failed } = await h.invoke(tool, { action: 'fail', reason: ' A required provider is unavailable. ' })
-  assert.equal(failed.phase, 'blocked')
-  assert.equal(failed.activation, 'disarmed')
-  assert.equal(failed.roundsStarted, 0)
-  assert.deepEqual(failed.blockedReason, { code: 'model-reported', message: 'A required provider is unavailable.' })
+  const { goal: paused } = await h.invoke(tool, { action: 'pause' })
+  assert.equal(paused.id, fresh.id)
+  assert.equal(paused.phase, 'paused')
+  assert.equal(paused.activation, 'disarmed')
+  assert.equal(paused.roundsStarted, 0)
+  assert.equal(paused.maxGoalRounds, 5)
+  assert.equal(paused.blockedReason, undefined)
   const { goal: resumed } = await h.invoke(tool, { action: 'resume' })
   assert.equal(resumed.id, fresh.id)
   assert.equal(resumed.objective, fresh.objective)
@@ -189,7 +198,7 @@ for (const phase of ['paused', 'blocked', 'disarmed']) {
     const { goal: first } = await h.invoke(tool, { action: 'set', objective: 'Preserve API, UI and evidence', max_goal_rounds: 1 })
     admitGoalRound(h, first)
     if (phase === 'paused') h.ctx.goals.pause(h.agent, nativeRef(h.getGoal()))
-    if (phase === 'blocked') await h.invoke(tool, { action: 'fail', reason: 'Temporary blocker' })
+    if (phase === 'blocked') blockGoal(h, 'Temporary blocker')
     if (phase === 'disarmed') h.ctx.goals.disarm(h.agent)
     const previous = h.getGoal()
     const { goal } = await h.invoke(tool, { action: 'resume', max_goal_rounds: 3 })
@@ -209,7 +218,7 @@ test('executeGoalAction derives each native CAS ref from live state, with no cal
   t.after(() => h.close())
   const goals = h.ctx.goals
   const calls = []
-  for (const name of ['clear', 'edit', 'resume', 'block', 'complete']) {
+  for (const name of ['clear', 'edit', 'resume', 'pause', 'complete']) {
     const original = goals[name]
     t.mock.method(goals, name, function (agent, ref, ...rest) {
       assert.deepEqual(ref, nativeRef(goals.get(agent)))
@@ -221,8 +230,8 @@ test('executeGoalAction derives each native CAS ref from live state, with no cal
   const { goal: first } = execute({ action: 'set', objective: 'First scope', max_goal_rounds: 5 })
   // A native human edit may change the revision after the model's last read.
   goals.edit(h.agent, nativeRef(first), { objective: 'Full live scope' })
-  const { goal: failed } = execute({ action: 'fail', reason: 'External blocker' })
-  assert.equal(failed.objective, 'Full live scope')
+  const { goal: paused } = execute({ action: 'pause' })
+  assert.equal(paused.objective, 'Full live scope')
   const { goal: resumed } = execute({ action: 'resume', max_goal_rounds: 8 })
   const { goal: completed } = execute({ action: 'complete' })
   assert.equal(completed.revision, resumed.revision + 1)
@@ -232,7 +241,7 @@ test('executeGoalAction derives each native CAS ref from live state, with no cal
   assert.ok(calls.some((call) => call.name === 'clear'))
   assert.ok(calls.some((call) => call.name === 'edit'))
   assert.ok(calls.some((call) => call.name === 'resume'))
-  assert.ok(calls.some((call) => call.name === 'block'))
+  assert.ok(calls.some((call) => call.name === 'pause'))
   assert.ok(calls.some((call) => call.name === 'complete'))
 })
 
@@ -241,7 +250,7 @@ test('removed model actions and caller CAS fields are rejected, not treated as s
   t.after(() => h.close())
   const tool = h.makeTool()
   await h.invoke(tool, { action: 'set', objective: 'Keep this scope' })
-  for (const action of ['create', 'edit', 'pause', 'clear', 'on', 'off', 'unknown']) {
+  for (const action of ['create', 'edit', 'fail', 'clear', 'on', 'off', 'unknown']) {
     await rejectsWithoutWrites(h, tool, { action }, (error) => error.code === 'INVALID_ARGS')
     assert.throws(() => executeGoalAction(h.ctx, h.agent, { action }, h.readLiveConfig()),
       (error) => error.code === 'GOAL_INVALID_ACTION')
@@ -258,7 +267,7 @@ test('missing-goal mutations instruct set and never write', async (t) => {
   const h = await createHarness()
   t.after(() => h.close())
   const tool = h.makeTool()
-  for (const args of [{ action: 'fail', reason: 'Concrete blocker' }, { action: 'complete' }, { action: 'resume' }]) {
+  for (const args of [{ action: 'pause' }, { action: 'complete' }, { action: 'resume' }]) {
     await rejectsWithoutWrites(h, tool, args,
       (error) => error.code === 'GOAL_INVALID_ACTION' && /use set first/.test(error.message) && !/create|edit/.test(error.message))
   }
@@ -268,14 +277,14 @@ test('strict empty-string and zero filler remains compatible across the five act
   const h = await createHarness()
   t.after(() => h.close())
   const tool = h.makeTool()
-  const filler = { objective: '', reason: '', max_goal_rounds: 0 }
+  const filler = { objective: '', max_goal_rounds: 0 }
   assert.deepEqual(await h.invoke(tool, { action: 'get', ...filler }), { goal: null })
   const { goal: first } = await h.invoke(tool, { action: 'set', ...filler, objective: 'Whole scope', max_goal_rounds: 5 })
-  const { goal: failed } = await h.invoke(tool, { action: 'fail', ...filler, reason: 'Concrete blocker' })
-  assert.equal(failed.phase, 'blocked')
+  const { goal: paused } = await h.invoke(tool, { action: 'pause', ...filler })
+  assert.equal(paused.phase, 'paused')
   const { goal: resumed } = await h.invoke(tool, { action: 'resume', ...filler })
   assert.equal(resumed.maxGoalRounds, 5)
-  assert.equal(resumed.revision, failed.revision + 1)
+  assert.equal(resumed.revision, paused.revision + 1)
   const { goal: completed } = await h.invoke(tool, { action: 'complete', ...filler })
   assert.equal(completed.phase, 'complete')
   const { goal: replacement } = await h.invoke(tool, { action: 'set', ...filler, objective: 'Whole new scope' })
@@ -283,8 +292,6 @@ test('strict empty-string and zero filler remains compatible across the five act
   assert.equal(replacement.maxGoalRounds, UNLIMITED_ROUNDS)
   await rejectsWithoutWrites(h, tool, { action: 'set', ...filler },
     (error) => error.code === 'GOAL_INVALID_ACTION' && /set requires a non-empty objective/.test(error.message))
-  await rejectsWithoutWrites(h, tool, { action: 'fail', ...filler },
-    (error) => error.code === 'GOAL_INVALID_ACTION' && /fail requires a concrete reason/.test(error.message))
 })
 
 test('action-specific arguments are validated before any mutation, including set/get early paths', async (t) => {
@@ -299,10 +306,9 @@ test('action-specific arguments are validated before any mutation, including set
     { action: 'get', objective: 'Unrelated objective' },
     { action: 'get', reason: 'Unrelated reason' },
     { action: 'get', max_goal_rounds: 2 },
-    { action: 'fail', reason: 'Blocker', objective: 'Unrelated objective' },
-    { action: 'fail', reason: 'Blocker', max_goal_rounds: 2 },
-    { action: 'fail', reason: '   ' },
-    { action: 'fail' },
+    { action: 'pause', objective: 'Unrelated objective' },
+    { action: 'pause', reason: 'Unrelated reason' },
+    { action: 'pause', max_goal_rounds: 2 },
     { action: 'complete', objective: 'Unrelated objective' },
     { action: 'complete', reason: 'Unrelated reason' },
     { action: 'complete', max_goal_rounds: 2 },
@@ -335,15 +341,18 @@ for (const state of ['armed', 'complete', 'exhausted']) {
   })
 }
 
-test('invalid native fail/complete transitions do not write', async (t) => {
+test('invalid native pause/complete transitions do not write', async (t) => {
   const h = await createHarness()
   t.after(() => h.close())
   const tool = h.makeTool()
   await h.invoke(tool, { action: 'set', objective: 'Transition target' })
-  h.ctx.goals.pause(h.agent, nativeRef(h.getGoal()))
-  await rejectsWithoutWrites(h, tool, { action: 'fail', reason: 'Cannot block a paused goal' },
-    (error) => error.code === 'GOAL_INVALID_TRANSITION')
+  await h.invoke(tool, { action: 'pause' })
+  await rejectsWithoutWrites(h, tool, { action: 'pause' }, (error) => error.code === 'GOAL_INVALID_TRANSITION')
+  await h.invoke(tool, { action: 'resume' })
+  blockGoal(h, 'Human-reported blocker')
+  await rejectsWithoutWrites(h, tool, { action: 'pause' }, (error) => error.code === 'GOAL_INVALID_TRANSITION')
   await h.invoke(tool, { action: 'complete' })
+  await rejectsWithoutWrites(h, tool, { action: 'pause' }, (error) => error.code === 'GOAL_INVALID_TRANSITION')
   await rejectsWithoutWrites(h, tool, { action: 'complete' }, (error) => error.code === 'GOAL_INVALID_TRANSITION')
 })
 
@@ -514,15 +523,16 @@ test('human create/edit/on/off/pause/clear retain native compatibility and attac
   assert.equal(h.getGoal().objective, 'New free-text objective')
 })
 
-test('human set/create replacements and fail/get/complete commands share the five-action state', async (t) => {
+test('human set/create replacements and human-only fail/get/complete commands share one goal state', async (t) => {
   const h = await createHarness()
   t.after(() => h.close())
   assert.equal(command(h, 'set Full original scope').kind, 'success')
   const first = h.getGoal()
   assert.equal(command(h, 'create Full replacement scope').kind, 'success')
   assert.notEqual(h.getGoal().id, first.id)
-  assert.equal(command(h, 'fail External dependency').kind, 'success')
+  assert.equal(command(h, 'fail  External dependency ').kind, 'success')
   assert.equal(h.getGoal().phase, 'blocked')
+  assert.deepEqual(h.getGoal().blockedReason, { code: 'user-reported', message: 'External dependency' })
   assert.match(command(h, 'get').text, /Reason: External dependency/)
   assert.equal(command(h, 'resume').kind, 'success')
   assert.equal(command(h, 'complete').kind, 'success')

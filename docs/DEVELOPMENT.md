@@ -4,7 +4,7 @@
 
 ## 状态与兼容性
 
-- 当前包版本：`0.1.0`。
+- 当前包版本：`0.2.0`。
 - DSH 基准：`0.2.1-rc.2`；`package.json` 的 engines 声明为 `>=0.2.1-rc.2 <0.3.0`。
 - Node.js：`^22.19.0 || >=24.0.0`。
 - 纯 ESM，无构建步骤，没有需要生成的资源文件。
@@ -69,7 +69,7 @@
 
 ## 单工具与动作契约
 
-模型侧只注册一个名为 `goal` 的工具，最终动作集合为 `get` / `set` / `fail` / `complete` / `resume`。工具参数不接受 `goal_id` / `revision`；工具内部读取当前目标并生成引用，服务层仍执行 revision-based CAS。返回值保留只读的原生目标视图，模型不需要管理其中的 ID 和 revision。
+模型侧只注册一个名为 `goal` 的工具，最终动作集合为 `get` / `set` / `pause` / `complete` / `resume`。工具参数不接受 `goal_id` / `revision`；工具内部读取当前目标并生成引用，服务层仍执行 revision-based CAS。返回值保留只读的原生目标视图，模型不需要管理其中的 ID 和 revision。
 
 | 动作 | 语义 |
 | --- | --- |
@@ -77,9 +77,11 @@
 | `set` | 全量替换为新目标：新的 objective、`roundsStarted` 归零、立即 arm 并启动。 |
 | `resume` | 恢复现有目标，保留 objective 和已用轮数，不重置计数。 |
 | `complete` | 标记完成并 disarm。 |
-| `fail` | 记录具体阻塞原因并 block、disarm。 |
+| `pause` | 暂停并 disarm（原生 `active → paused`）；不存原因，Agent 在回复里说明需要什么。只接受 armed 或 disarmed 的 `active`。 |
 
-`set` 是整体替换，不是“改几个字”；只在确实要替换总目标时使用。暂停（`pause`）和清除（`clear`）不在模型侧五个动作中，但仍由 GoalBar、Remote 服务和人类 `/goal` 命令提供。人类 `/goal create` 映射到 `set`；`/goal edit` 仍在原目标上就地编辑（已完成目标会新建）；`/goal pause` 和 `/goal clear` 直接走服务层。
+`set` 是整体替换，不是“改几个字”；只在确实要替换总目标时使用。清除（`clear`）和受阻（`block`）不在模型侧动作中：清除由 GoalBar、Remote 服务和 `/goal clear` 提供；受阻只来自轮数上限、运行时错误、续跑被拒和人类 `/goal fail`。人类 `/goal create` 映射到 `set`；`/goal edit` 仍在原目标上就地编辑（已完成目标会新建）；`/goal pause`、`/goal fail` 和 `/goal clear` 直接走服务层。
+
+0.2.0 起模型侧 `fail` 改为 `pause`：模型缺密钥、权限或决定时只需停下等人，持久化原因对它没有额外价值，而 `pause` 记录与原生 `goal/change v1` 字节兼容。历史 `model-reported` 受阻目标仍可读取、恢复和完成。
 
 原生协议没有替换事务：覆盖未完成目标通过内部 CAS `clear` 后 `create` 实现，恢复时调整上限可能通过 `edit` 后 `resume` 实现。参数、策略和状态校验在首次写入前完成；底层追加失败或同步重入不具有跨事件回滚保证，不应把这两步描述成原子事务。
 
@@ -97,7 +99,7 @@ README 只写五个动作的用户语义，不复制 JSON、schema 或内部引�
 | `/goal pause` / `/goal off` | 暂停并 disarm（服务层） |
 | `/goal resume` / `/goal on` | 恢复并 arm |
 | `/goal complete` | 标记完成 |
-| `/goal fail <reason>` | 记录具体原因并阻塞 |
+| `/goal fail <reason>` | 仅人类：以 `user-reported` 记录原因并阻塞（服务层） |
 | `/goal clear` | 清除当前 goal（服务层） |
 
 GoalBar 不新建 goal，只通过正式 `remote.goals` RPC 做编辑、暂停、恢复和清除。它使用 click 时从 live projection 读取的 CAS ref，不在聊天中写入 slash-command 生命周期；完成态不渲染。
@@ -131,10 +133,11 @@ GoalBar 不新建 goal，只通过正式 `remote.goals` RPC 做编辑、暂停�
 - 超时返回原生 pending 结果，问题仍可回答；模型侧提示明确说明“pending, not a skipped answer”，不得把超时当授权或默认答案。
 - 超时后用户仍可提交答案，迟到答案由原生 `userQuestions` 服务结算。
 
-## 完成与失败
+## 完成与暂停
 
 - 自动轮次的 prompt 要求从 objective 和引用规格逐项推导要求，并检查当前文件、命令结果、测试和运行状态；局部进度、记忆或“应该可以”不能作为完成证据。它是行为约束，不是硬编码测试门。
-- 遇到明确阻塞时，模型应立即 `fail` 并给出具体原因；没有“必须阻塞三个回合”的门槛。
+- 进展需要用户时（缺密钥、凭据、权限、账号或只有用户能做的决定），模型应先做完独立工作，再立即 `pause` 并说明缺什么；不得用 mock、stub、硬编码、跳过检查或缩小范围来“完成”。没有“必须阻塞三个回合”的门槛。
+- 模型在目标轮次内自行 `pause` 时，驱动不会取消当前回合（只有非本 Agent 发起的暂停才取消运行中的回合）；回合结束后目标不再可驱动，不排下一轮。
 - `complete` 接受 `active` / `paused` / `blocked`；完成后 disarm，GoalBar 隐藏。
 - 用户中断会 disarm，并在安全 idle 边界把 active goal 持久化为 paused；不会把暂停通知当作新提示自动启动。
 - Plan mode 或待提交选择存在时，驱动不排下一轮；计划模式退出后可以恢复。
@@ -144,7 +147,7 @@ GoalBar 不新建 goal，只通过正式 `remote.goals` RPC 做编辑、暂停�
 
 这是 README 只保留一句提示、本文档保留完整原理的部分。
 
-Apollo 在 `package.json` 中把 `dsh-better-goal` 声明为精确 npm 依赖 `0.1.0`（不是 Git commit、分支、范围或 `file:` 说明符）；它的顶层 patch 自己插入了 `id/name` 都是 `dsh-better-goal` 的行。独立包也插入同一行。
+Apollo 在 `package.json` 中把 `dsh-better-goal` 声明为精确 npm 依赖 `0.2.0`（不是 Git commit、分支、范围或 `file:` 说明符）；它的顶层 patch 自己插入了 `id/name` 都是 `dsh-better-goal` 的行。独立包也插入同一行。
 
 - 两个 bundle 同时被显式选中时，DSH Loader 按行 id 去重，通常只激活一个实例，浏览器模块也只有一个 active source。
 - 但 DSH `0.2.1-rc.2` 的插件管理器会把组合行开关标成只读（`unaddressable`），配置编辑器也可能拒绝保存目标设置。
@@ -158,7 +161,7 @@ Apollo 在 `package.json` 中把 `dsh-better-goal` 声明为精确 npm 依赖 `0
 ### npm 安装
 
 ```sh
-dsh plugin --profile <profile> add dsh-better-goal@0.1.0
+dsh plugin --profile <profile> add dsh-better-goal@0.2.0
 ```
 
 npm 安装后，目标设置出现在 **Plugins → dsh-better-goal → dsh-better-goal 行**。GitHub main 仍保留为源码安装选项。
@@ -175,7 +178,7 @@ dsh plugin --profile <profile> add link:/absolute/path/to/dsh-better-goal
 
 链接后要重启 profile；运行时三个设置字段仍然支持保存后热更新。
 
-Apollo 本地开发时，先在其根目录执行 `npm install`。`dsh plugin add link:` 只链接 Apollo 本身，不代装依赖；Apollo 的依赖是精确 npm 版本 `dsh-better-goal@0.1.0`，本地联调可临时改成 `file:../dsh-better-goal`，但不要提交该改动。GitHub 源码安装同样从 registry 解析这个精确版本。
+Apollo 本地开发时，先在其根目录执行 `npm install`。`dsh plugin add link:` 只链接 Apollo 本身，不代装依赖；Apollo 的依赖是精确 npm 版本 `dsh-better-goal@0.2.0`，本地联调可临时改成 `file:../dsh-better-goal`，但不要提交该改动。GitHub 源码安装同样从 registry 解析这个精确版本。
 
 ## 测试与宿主冒烟
 
@@ -205,16 +208,18 @@ GOAL_SMOKE_MODE=both DSH_PACKAGE_ROOT=/path/to/node_modules/@deepseek-ai/dsh npm
 
 冒烟使用临时 home/profile、真实 DSH AgentLoop 和脚本化模型适配器，不调用付费模型，也不启动替代 GUI。通过条件是进程退出码为 0、输出 `BETTER_GOAL_RUNTIME_SMOKE_PASSED`，以及临时目录 `results.json` 的 `passed` 为 `true`。`apollo` / `both` 模式默认从 `../dsh-apollo` 读取 Apollo 仓库，可用 `APOLLO_PACKAGE_ROOT` 指定其他位置。
 
-实际检查包括：真实 profile 启动、单 `goal` 工具、五动作枚举、无 `goal_id` / `revision` 参数、旧三工具隐藏、`/goal` 命令、创建/替换/暂停/恢复/完成/清除、真实工具 dispatch、native goal RPC、自动轮次、冷恢复 disarmed、fork disarmed、Agent 无需新人类消息即可控制完整生命周期；`GOAL_SMOKE_HOT=1` 还检查热设置持久化和迟到回答。冒烟路径覆盖 `standard`（standalone）以及 `eng` / `eng-noask`（apollo / both）；`apollo` / `both` 模式会检查 `eng-noask` 没有提问工具时不会被插件新增提问能力。
+实际检查包括：真实 profile 启动、单 `goal` 工具、五动作枚举、无 `goal_id` / `revision` 参数、旧三工具隐藏、`/goal` 命令、创建/替换/暂停/恢复/完成/清除、真实工具 dispatch、native goal RPC、自动轮次、冷恢复 disarmed、fork disarmed、Agent 无需新人类消息即可控制完整生命周期；`GOAL_SMOKE_HOT=1` 还检查热设置持久化和迟到回答。冒烟路径覆盖 `standard`（standalone）以及 `eng` / `eng-ptc`（apollo / both）；`apollo` / `both` 模式会检查 `eng-ptc` 同样只有一个 `goal` 工具、旧三工具隐藏。
 
-未覆盖：PTC 工具呈现模式、其他自定义提问工具、当前浏览器 GUI 的人工验收。单元测试或冒烟通过都不代表这些场景已验证。
+未覆盖：PTC 模式下 `run_code` 内调用 goal 的真实回合、其他自定义提问工具、当前浏览器 GUI 的人工验收。单元测试或冒烟通过都不代表这些场景已验证。
 
-## npm 首发
+## npm 发布
 
-1. 先人工发布本包 `0.1.0` tarball 到 `https://registry.npmjs.org/`，`access` 为 `public`。
-2. 在官方 registry 验证 `dsh-better-goal@0.1.0` 可取得，再人工发布 Apollo `@menghuan1918/dsh-apollo@0.3.0`；Apollo 的发布目标同样是 `https://registry.npmjs.org/`，`access` 为 `public`。
-3. 登录、2FA 和 publish 由维护者在真实终端完成；OTP、token 和恢复码不写入脚本、环境文件或仓库。
-4. 在本包发布并验证通过前，不要让 Apollo 的 `package.json` 精确依赖 `0.1.0` 进入 main；否则 GitHub 源码安装会 404。
+发布走 [.github/workflows/release.yml](../.github/workflows/release.yml) 的 npm trusted publishing（OIDC），仓库不保存 npm token：
+
+1. 把 `package.json` 的 `version` 改为新版本，同步 `package-lock.json`（`npm install --package-lock-only`），提交并推到 GitHub `main`。
+2. 创建并发布 GitHub Release，tag 必须是 `v<version>`。
+3. CI 校验 tag 与版本一致，执行 `npm ci`、`npm test`，再 `npm publish --provenance --access public`。
+4. 本包在 registry 可取得后，才把 Apollo 的精确依赖改到新版本并发布 Apollo；否则 Apollo 安装会 404。
 
 ## 卸载、禁用与回退
 

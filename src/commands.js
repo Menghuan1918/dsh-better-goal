@@ -51,6 +51,9 @@ export function executeGoalCommand(ctx, invocation, readConfig) {
       })
     } else if (args.action === 'pause') {
       goal = goals.pause(invocation.agent, goalRef(current))
+    } else if (args.action === 'fail') {
+      // Human-only blocker: the model pauses instead, so this keeps a durable reason.
+      goal = goals.block(invocation.agent, goalRef(current), { code: 'user-reported', message: args.reason.trim() })
     } else if (args.action === 'clear') {
       goals.clear(invocation.agent, goalRef(current))
       return { kind: 'success', text: 'Goal cleared.' }

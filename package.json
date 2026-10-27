@@ -1,6 +1,6 @@
 {
   "name": "dsh-better-goal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Independent DSH goal plugin: one goal tool, persistent continuation, hot settings and timed questions.",
   "license": "GPL-3.0",
   "repository": {
@@ -26,7 +26,14 @@
     "test": "node --test",
     "smoke": "node scripts/runtime-smoke.mjs"
   },
-  "files": ["src", "docs", "cordis.patch.yml", "README.md", "LICENSE", "third-party"],
+  "files": [
+    "src",
+    "docs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "third-party"
+  ],
   "dependencies": {
     "@deepseek-ai/schemastery": "~3.18.5",
     "zod": "4.4.3"
@@ -50,10 +57,19 @@
     "react-test-renderer": "18.3.1"
   },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
-      "inject": ["@deepseek-ai/dsh-api-remotes", "@deepseek-ai/dsh-api-session-controller", "@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-conversation", "@deepseek-ai/dsh-client-ui-settings"]
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   }
 }
