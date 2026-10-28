@@ -2,7 +2,6 @@ import { Config, readConfig as snapshotConfig, UNLIMITED_ROUNDS } from './config
 import { GoalService } from './service.js'
 import { createGoalTool, LEGACY_GOAL_TOOLS } from './tool.js'
 import { registerGoalCommand } from './commands.js'
-import { createGoalAskTool } from './ask-user.js'
 import { apply as mountDriver } from './driver.js'
 import { mountSettings } from './settings.js'
 
@@ -33,12 +32,6 @@ export function apply(ctx, config = {}) {
         state.goalDispose = tools.register(createGoalTool(state.actor, readConfig))
         state.mode = settings.roundLimitMode
       }
-      state.askDispose?.()
-      state.askDispose = undefined
-      const baseAsk = tools.get('ask_user_question', state.agent)
-      if (baseAsk && state.actor.get('userQuestions')) {
-        state.askDispose = tools.register(createGoalAskTool(state.actor, baseAsk, readConfig))
-      }
     }
     function setup(agent) {
       if (states.has(agent)) return states.get(agent)
@@ -56,7 +49,6 @@ export function apply(ctx, config = {}) {
       return state
     }
     function cleanup(state) {
-      state.askDispose?.()
       state.goalDispose?.()
       state.commandDispose?.()
       state.restrictDispose?.()
@@ -77,7 +69,7 @@ export function apply(ctx, config = {}) {
       const schemas = new Map(state.actor.get('tools').schemas(state.agent).map((tool) => [tool.name, tool]))
       assembly.tools = assembly.tools.flatMap((tool) => {
         if (LEGACY_GOAL_TOOLS.includes(tool.name)) return []
-        if (tool.name === 'goal' || tool.name === 'ask_user_question') {
+        if (tool.name === 'goal') {
           const schema = schemas.get(tool.name)
           return schema ? [schema] : []
         }

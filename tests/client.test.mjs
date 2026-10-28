@@ -19,7 +19,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import * as React from 'react'
 import TestRenderer from 'react-test-renderer'
-import { DEFAULTS, ENTRY_ID, PACKAGE_NAME, ROW_CONFIG_KEY, UNLIMITED_ROUNDS } from '../src/config.js'
+import { ENTRY_ID, PACKAGE_NAME, ROW_CONFIG_KEY, UNLIMITED_ROUNDS } from '../src/config.js'
 
 const { createElement: h } = React
 const act = TestRenderer.act ?? TestRenderer.default?.act
@@ -653,18 +653,6 @@ test('standalone, legacy Apollo, and scoped Apollo keys dispatch the same page o
     assert.equal(byId(pages.get(key).renderer, 'dsh-better-goal-round-limit').props.value, '512')
   }
 
-  // A save through the standalone key writes the same shared form.
-  const standalone = pages.get(ROW_CONFIG_KEY)
-  await act(async () => {
-    byId(standalone.renderer, 'dsh-better-goal-question-timeout').props.onChange({ target: { value: '-1' } })
-  })
-  await act(async () => { primaryButton(standalone.renderer).props.onClick() })
-  assert.equal(controller.calls.length, 2)
-  assert.deepEqual(controller.calls[1], {
-    ops: [{ op: 'set', path: ['questionTimeoutSeconds'], value: -1 }],
-    revision: 4,
-  })
-  await act(async () => { controller.finish(true); await Promise.resolve() })
 })
 
 test('settings page exposes defaults, fixed mode input, validation, and atomic save', async () => {
@@ -673,7 +661,6 @@ test('settings page exposes defaults, fixed mode input, validation, and atomic s
   })
   assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit-mode').props.value, 'agent')
   assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit'), undefined)
-  assert.equal(byId(page.renderer, 'dsh-better-goal-question-timeout').props.value, '120')
   assert.equal(
     page.renderer.root.findAll((node) => isHost(node) && node.type === 'style' && node.props?.['data-plugin-css'] === 'dsh-better-goal/settings.css').length,
     1,
@@ -691,11 +678,7 @@ test('settings page exposes defaults, fixed mode input, validation, and atomic s
   assert.equal(primaryButton(page.renderer).props.disabled, true)
 
   await act(async () => { byId(page.renderer, 'dsh-better-goal-round-limit').props.onChange({ target: { value: '1024' } }) })
-  await act(async () => {
-    byId(page.renderer, 'dsh-better-goal-question-timeout').props.onChange({ target: { value: '-1' } })
-  })
   assert.equal(primaryButton(page.renderer).props.disabled, false)
-  assert.match(pageText(page.renderer), /questionTimeoutNever/)
 
   await act(async () => { primaryButton(page.renderer).props.onClick() })
   assert.equal(page.controller.calls.length, 1)
@@ -703,7 +686,6 @@ test('settings page exposes defaults, fixed mode input, validation, and atomic s
     ops: [
       { op: 'set', path: ['roundLimitMode'], value: 'fixed' },
       { op: 'set', path: ['roundLimit'], value: 1024 },
-      { op: 'set', path: ['questionTimeoutSeconds'], value: -1 },
     ],
     revision: 3,
   })
@@ -712,18 +694,6 @@ test('settings page exposes defaults, fixed mode input, validation, and atomic s
     await Promise.resolve()
   })
   assert.match(pageText(page.renderer), /saved/)
-})
-
-test('settings page refuses invalid timeout text and keeps the save disabled', async () => {
-  const page = await mountSettings({
-    value: { roundLimitMode: 'unlimited', roundLimit: 256, questionTimeoutSeconds: 120 },
-  })
-  await act(async () => {
-    byId(page.renderer, 'dsh-better-goal-question-timeout').props.onChange({ target: { value: '0' } })
-  })
-  assert.match(pageText(page.renderer), /invalidQuestionTimeout/)
-  assert.equal(primaryButton(page.renderer).props.disabled, true)
-  assert.equal(page.controller.calls.length, 0)
 })
 
 test('settings summary view and unavailable/read-only states', async () => {
@@ -744,18 +714,18 @@ test('settings summary view and unavailable/read-only states', async () => {
 
 test('exported form helpers normalize defaults and validate drafts strictly', () => {
   const { shapeConfig, parseDraft, diffOps } = install().exports
-  assert.deepEqual(shapeConfig(undefined), DEFAULTS)
-  assert.deepEqual(shapeConfig({ roundLimitMode: 'nope', roundLimit: 0, questionTimeoutSeconds: 0 }), DEFAULTS)
+  const roundDefaults = { roundLimitMode: 'agent', roundLimit: 256 }
+  assert.deepEqual(shapeConfig(undefined), roundDefaults)
+  assert.deepEqual(shapeConfig({ roundLimitMode: 'nope', roundLimit: 0, questionTimeoutSeconds: 0 }), roundDefaults)
   assert.deepEqual(shapeConfig({ roundLimitMode: 'fixed', roundLimit: UNLIMITED, questionTimeoutSeconds: -1 }), {
     roundLimitMode: 'fixed',
     roundLimit: UNLIMITED,
-    questionTimeoutSeconds: -1,
   })
   assert.deepEqual(parseDraft({ roundLimitMode: 'fixed', roundLimit: '1.5', questionTimeoutSeconds: '120' }, { roundLimit: 256 }), {
     error: 'invalidRoundLimit',
   })
   assert.deepEqual(parseDraft({ roundLimitMode: 'agent', roundLimit: 'ignored', questionTimeoutSeconds: '-1' }, { roundLimit: 256 }), {
-    value: { roundLimitMode: 'agent', roundLimit: 256, questionTimeoutSeconds: -1 },
+    value: { roundLimitMode: 'agent', roundLimit: 256 },
   })
   assert.deepEqual(diffOps(
     { roundLimitMode: 'agent', roundLimit: 256, questionTimeoutSeconds: 120 },

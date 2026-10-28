@@ -53,8 +53,6 @@ window.__ModuleLoader__.load({
     const ROW_CONFIG_KEYS = Object.freeze([ROW_KEY, APOLLO_ROW_KEY, SCOPED_APOLLO_ROW_KEY])
     const ROUND_LIMIT_MODES = Object.freeze(['agent', 'unlimited', 'fixed'])
     const DEFAULT_ROUND_LIMIT = 256
-    const DEFAULT_QUESTION_TIMEOUT_SECONDS = 120
-    const MAX_QUESTION_TIMEOUT_SECONDS = 2147483
     const UNLIMITED_ROUNDS = Number.MAX_SAFE_INTEGER
     const STYLE_GOAL = 'dsh-better-goal/goal.css'
     const STYLE_SETTINGS = 'dsh-better-goal/settings.css'
@@ -63,7 +61,7 @@ window.__ModuleLoader__.load({
 
     /** Simplified Chinese dictionary (key-set source of truth). */
     const zh = {
-      summary: '独立目标条、轮数上限策略与目标提问超时',
+      summary: '独立目标条与轮数上限策略',
       waitingForm: '正在等待宿主提供这一行的配置快照…',
       noFormHint: '长时间停在这里说明宿主没有为这一行提供可编辑配置：本部署没组合 dsh-settings/config-editor，或本行的 Config 未被识别。',
       loading: '正在读取配置…',
@@ -113,7 +111,7 @@ window.__ModuleLoader__.load({
 
     /** English dictionary, checked complete against the zh key set. */
     const en = {
-      summary: 'Standalone GoalBar, round-cap policy, and goal-question timeout',
+      summary: 'Standalone GoalBar and round-cap policy',
       waitingForm: 'Waiting for the host to provide this row’s configuration snapshot…',
       noFormHint: 'Staying here means the host exposes no editable config for this row: dsh-settings/config-editor is not composed, or this row’s Config was not recognized.',
       loading: 'Loading configuration…',
@@ -301,11 +299,6 @@ window.__ModuleLoader__.load({
 
     function isPositiveSafeInteger(value) {
       return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
-    }
-
-    function isValidQuestionTimeout(value) {
-      if (value === -1) return true
-      return Number.isSafeInteger(value) && value >= 1 && value <= MAX_QUESTION_TIMEOUT_SECONDS
     }
 
     function isUnlimitedCap(value) {
@@ -756,9 +749,6 @@ window.__ModuleLoader__.load({
       return {
         roundLimitMode: ROUND_LIMIT_MODES.includes(source.roundLimitMode) ? source.roundLimitMode : 'agent',
         roundLimit: isPositiveSafeInteger(source.roundLimit) ? source.roundLimit : DEFAULT_ROUND_LIMIT,
-        questionTimeoutSeconds: isValidQuestionTimeout(source.questionTimeoutSeconds)
-          ? source.questionTimeoutSeconds
-          : DEFAULT_QUESTION_TIMEOUT_SECONDS,
       }
     }
 
@@ -767,14 +757,12 @@ window.__ModuleLoader__.load({
       return {
         roundLimitMode: config.roundLimitMode,
         roundLimit: String(config.roundLimit),
-        questionTimeoutSeconds: String(config.questionTimeoutSeconds),
       }
     }
 
     function sameConfig(left, right) {
       return left.roundLimitMode === right.roundLimitMode
         && left.roundLimit === right.roundLimit
-        && left.questionTimeoutSeconds === right.questionTimeoutSeconds
     }
 
     function parsePositiveSafeIntegerText(text) {
@@ -783,14 +771,6 @@ window.__ModuleLoader__.load({
       if (!/^[0-9]+$/.test(trimmed)) return undefined
       const value = Number(trimmed)
       return Number.isSafeInteger(value) && value >= 1 && value <= UNLIMITED_ROUNDS ? value : undefined
-    }
-
-    function parseQuestionTimeoutText(text) {
-      if (typeof text !== 'string') return undefined
-      const trimmed = text.trim()
-      if (trimmed === '-1') return -1
-      const value = parsePositiveSafeIntegerText(trimmed)
-      return value !== undefined && value <= MAX_QUESTION_TIMEOUT_SECONDS ? value : undefined
     }
 
     /**
@@ -806,13 +786,10 @@ window.__ModuleLoader__.load({
         if (parsed === undefined) return { error: 'invalidRoundLimit' }
         roundLimit = parsed
       }
-      const questionTimeoutSeconds = parseQuestionTimeoutText(draft.questionTimeoutSeconds)
-      if (questionTimeoutSeconds === undefined) return { error: 'invalidQuestionTimeout' }
       return {
         value: {
           roundLimitMode: draft.roundLimitMode,
           roundLimit,
-          questionTimeoutSeconds,
         },
       }
     }
@@ -825,9 +802,6 @@ window.__ModuleLoader__.load({
       }
       if (host.roundLimit !== next.roundLimit) {
         ops.push({ op: 'set', path: ['roundLimit'], value: next.roundLimit })
-      }
-      if (host.questionTimeoutSeconds !== next.questionTimeoutSeconds) {
-        ops.push({ op: 'set', path: ['questionTimeoutSeconds'], value: next.questionTimeoutSeconds })
       }
       return ops
     }
@@ -903,7 +877,6 @@ window.__ModuleLoader__.load({
       }
 
       const roundLimitValue = parsePositiveSafeIntegerText(live.roundLimit)
-      const timeoutValue = parseQuestionTimeoutText(live.questionTimeoutSeconds)
       const status = notice !== null
         ? h('span', { className: 'dbg-status', 'data-tone': notice.tone, role: notice.tone === 'error' ? 'alert' : 'status' }, notice.text)
         : invalid !== null
@@ -957,26 +930,7 @@ window.__ModuleLoader__.load({
               onChange: (event) => edit((current) => ({ ...current, roundLimit: event.target.value })),
             }))
             : null,
-          h(Field, {
-            id: 'dsh-better-goal-question-timeout',
-            label: tr(t, 'questionTimeoutLabel'),
-            hint: timeoutValue === -1
-              ? `${tr(t, 'questionTimeoutHint')} ${tr(t, 'questionTimeoutNever')}`
-              : tr(t, 'questionTimeoutHint'),
-          },
-          h('input', {
-            className: 'dbg-input',
-            id: 'dsh-better-goal-question-timeout',
-            type: 'number',
-            min: -1,
-            max: MAX_QUESTION_TIMEOUT_SECONDS,
-            step: 1,
-            inputMode: 'numeric',
-            value: live.questionTimeoutSeconds,
-            disabled: !writable || busy,
-            'aria-invalid': invalid === 'invalidQuestionTimeout' ? true : undefined,
-            onChange: (event) => edit((current) => ({ ...current, questionTimeoutSeconds: event.target.value })),
-          }))),
+          ),
         h('div', { className: 'dbg-footer' },
           h('button', {
             type: 'button',

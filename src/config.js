@@ -9,8 +9,10 @@
  *     `agent` (the model may pass `max_goal_rounds`), `unlimited` (the
  *     compatibility sentinel), or `fixed` (the configured `roundLimit`).
  *   - `roundLimit` is the cap used only by `fixed` mode.
- *   - `questionTimeoutSeconds` bounds a NEW goal question wait; `-1` means the
- *     wait never times out.
+ *   - `questionTimeoutSeconds` is deprecated and load-only. It is retained so
+ *     existing profiles and the ask-user migration can read the old value; the
+ *     goal plugin no longer consumes it and the settings page no longer edits
+ *     it. The standalone ask-user plugin owns question waits.
  *
  * Every field is `.volatile()`: changing it hot-swaps the stable reference on
  * the live fiber instead of remounting the row. Consumers (`readConfig`,
@@ -75,7 +77,7 @@ export const Config = z.object({
   roundLimitMode: z.union(ROUND_LIMIT_MODES).default(DEFAULTS.roundLimitMode).volatile(),
   /** Fixed cap; used only when `roundLimitMode` is `fixed`. */
   roundLimit: RoundLimit.volatile(),
-  /** New goal-question wait in seconds; `-1` never times out. */
+  /** Deprecated/load-only goal-question wait; kept for profile migration. */
   questionTimeoutSeconds: QuestionTimeout.volatile(),
 })
 

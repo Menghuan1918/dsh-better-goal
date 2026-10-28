@@ -112,7 +112,7 @@ GoalBar 不新建 goal，只通过正式 `remote.goals` RPC 做编辑、暂停�
 | --- | --- | --- | --- |
 | `roundLimitMode` | `agent` | `agent` / `unlimited` / `fixed` | 选择解释轮数上限的策略。 |
 | `roundLimit` | `256` | 正安全整数 | 只在 `fixed` 模式使用。 |
-| `questionTimeoutSeconds` | `120` | `-1` 或 `1..2147483` 的整数 | 新 goal 提问的等待秒数。 |
+| `questionTimeoutSeconds` | `120` | `-1` 或 `1..2147483` 的整数 | **已弃用、仅保留读取**；新的提问等待由 dsh-better-ask-user 管理，用于旧配置迁移。 |
 
 `resolveRoundLimit` 的解析顺序：
 
@@ -122,16 +122,9 @@ GoalBar 不新建 goal，只通过正式 `remote.goals` RPC 做编辑、暂停�
 
 工具 schema 会在下一个 step 刷新：`agent` 模式暴露可选的 `max_goal_rounds`，`fixed` / `unlimited` 模式不暴露。驱动在每次准入时重新读取 live config，所以热设置只影响之后的新轮次和操作，不重置计数，也不自动恢复已停止的 goal。
 
-## 提问超时
+## 提问等待
 
-[src/ask-user.js](../src/ask-user.js) 不是新增一个提问工具，而是对宿主已有 `ask_user_question` 做 Agent 作用域的影子定义：
-
-- 仅当 goal 为 `active` 且 activation 为 `armed` 时接管；其他情况完全委托给原工具。
-- 复用宿主当前工具的 `questions` schema，不导入 `@deepseek-ai/dsh-tool-ask-user`，也不给“无提问”预设新增工具。
-- 每次新等待读取一次 `questionTimeoutSeconds`；正在等待的提问保留原期限。
-- 宿主设置覆盖模型传入的等待时间；`-1` 走不带超时的 `userQuestions.ask`。
-- 超时返回原生 pending 结果，问题仍可回答；模型侧提示明确说明“pending, not a skipped answer”，不得把超时当授权或默认答案。
-- 超时后用户仍可提交答案，迟到答案由原生 `userQuestions` 服务结算。
+提问等待已迁移到独立的 **dsh-better-ask-user**。本仓库不再包含 `src/ask-user.js`，也不再注册 `ask_user_question` 影子或消费 `questionTimeoutSeconds`。保留该 Config 字段仅用于读取旧配置，供 ask-user 的一次性迁移使用；设置页不再展示该字段。
 
 ## 完成与暂停
 
@@ -188,7 +181,7 @@ Apollo 本地开发时，先在其根目录执行 `npm install`。`dsh plugin ad
 npm test
 ```
 
-测试覆盖 Config 默认值与边界、round policy、goal service 的持久 schema/replay/CAS、driver 的续跑与中断、单工具动作、命令、GoalBar、设置页和提问超时影子。
+测试覆盖 Config 默认值与边界、round policy、goal service 的持久 schema/replay/CAS、driver 的续跑与中断、单工具动作、命令、GoalBar 和设置页。提问等待的影子测试已随实现迁移到 ask-user。
 
 宿主冒烟需要指向已安装的 DSH 包：
 

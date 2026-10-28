@@ -1,6 +1,6 @@
 {
   "name": "dsh-better-goal",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Independent DSH goal plugin: one goal tool, persistent continuation, hot settings and timed questions.",
   "license": "GPL-3.0",
   "repository": {
