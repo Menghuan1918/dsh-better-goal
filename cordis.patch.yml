@@ -1,5 +1,7 @@
-# Replace the native host goal domain, driver and UI. Scoped legacy tools are
-# hidden by the replacement for every newly created Agent.
+# This row owns backend selection. Keep native rows disabled in both modes:
+# implementation=native loads the real host modules under the single plugin
+# owner at profile startup, rather than enabling a second service/driver.
+# The plugin client owns the UI in both modes.
 - id: goal
   disabled: true
 - id: goal-round-driver

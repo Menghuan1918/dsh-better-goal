@@ -19,7 +19,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import * as React from 'react'
 import TestRenderer from 'react-test-renderer'
-import { ENTRY_ID, PACKAGE_NAME, ROW_CONFIG_KEY, UNLIMITED_ROUNDS } from '../src/config.js'
+import { DEFAULTS, ENTRY_ID, PACKAGE_NAME, ROW_CONFIG_KEY, UNLIMITED_ROUNDS } from '../src/config.js'
 
 const { createElement: h } = React
 const act = TestRenderer.act ?? TestRenderer.default?.act
@@ -312,11 +312,11 @@ async function flushAct() {
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
 }
 
-async function mountGoalBar({ projection, activation, goalResults }) {
+async function mountGoalBar({ projection, activation, goalResults, history }) {
   const setup = install({ projection, activation, goalResults })
   const record = setup.declare('conversation.input.dock')
   const injected = record.options.inject(SESSION_ID)
-  const useProjection = (key) => (key === 'goal' ? setup.projectionStore.value : undefined)
+  const useProjection = (key) => key === 'goal' ? setup.projectionStore.value : key === 'better-goal-history' ? history : undefined
   const useGoalActivation = injected.hooks === undefined
     ? undefined
     : makeGoalActivationHook(injected.hooks.goalActivation)
@@ -586,6 +586,10 @@ async function mountConfigEntry(record, controller) {
   }
 }
 
+function selectedChoice(renderer, name) {
+  return renderer.root.find((node) => isHost(node) && node.type === 'input' && node.props.name === name && node.props.checked).props.value
+}
+
 test('three exact row-config keys are unique and each dispatches one shared entry', () => {
   const setup = install()
   setup.declare('plugins.row.config')
@@ -615,14 +619,14 @@ test('standalone, legacy Apollo, and scoped Apollo keys dispatch the same page o
   const pages = new Map()
   for (const [index, key] of keys.entries()) pages.set(key, await mountConfigEntry(entries[index], controller))
   for (const key of keys) {
-    assert.equal(byId(pages.get(key).renderer, 'dsh-better-goal-round-limit-mode').props.value, 'agent')
+    assert.equal(selectedChoice(pages.get(key).renderer, 'dsh-better-goal-round-limit-mode'), 'agent')
   }
   assert.equal(controller.calls.length, 0, 'three mounted keys neither activate nor write the shared store')
 
   // A save through the scoped Apollo key writes the shared form exactly once.
   const scoped = pages.get(SCOPED_APOLLO_ROW_CONFIG_KEY)
   await act(async () => {
-    byId(scoped.renderer, 'dsh-better-goal-round-limit-mode').props.onChange({ target: { value: 'fixed' } })
+    byId(scoped.renderer, 'dsh-better-goal-round-limit-mode-fixed').props.onChange()
   })
   await act(async () => {
     byId(scoped.renderer, 'dsh-better-goal-round-limit').props.onChange({ target: { value: '512' } })
@@ -649,7 +653,7 @@ test('standalone, legacy Apollo, and scoped Apollo keys dispatch the same page o
   })
   for (const key of keys) await pages.get(key).update()
   for (const key of keys) {
-    assert.equal(byId(pages.get(key).renderer, 'dsh-better-goal-round-limit-mode').props.value, 'fixed')
+    assert.equal(selectedChoice(pages.get(key).renderer, 'dsh-better-goal-round-limit-mode'), 'fixed')
     assert.equal(byId(pages.get(key).renderer, 'dsh-better-goal-round-limit').props.value, '512')
   }
 
@@ -659,7 +663,11 @@ test('settings page exposes defaults, fixed mode input, validation, and atomic s
   const page = await mountSettings({
     value: { roundLimitMode: 'agent', roundLimit: 256, questionTimeoutSeconds: 120 },
   })
-  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit-mode').props.value, 'agent')
+  // 单一标题，无开场说明。
+  assert.equal(page.renderer.root.findAll((node) => isHost(node) && node.type === 'h3' && node.props?.className === 'dbg-title').length, 1)
+  assert.match(pageText(page.renderer), /settingsTitle/)
+  assert.doesNotMatch(pageText(page.renderer), /settingsIntro/)
+  assert.equal(selectedChoice(page.renderer, 'dsh-better-goal-round-limit-mode'), 'agent')
   assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit'), undefined)
   assert.equal(
     page.renderer.root.findAll((node) => isHost(node) && node.type === 'style' && node.props?.['data-plugin-css'] === 'dsh-better-goal/settings.css').length,
@@ -668,7 +676,7 @@ test('settings page exposes defaults, fixed mode input, validation, and atomic s
   assert.equal(primaryButton(page.renderer).props.disabled, true)
 
   await act(async () => {
-    byId(page.renderer, 'dsh-better-goal-round-limit-mode').props.onChange({ target: { value: 'fixed' } })
+    byId(page.renderer, 'dsh-better-goal-round-limit-mode-fixed').props.onChange()
   })
   const limit = byId(page.renderer, 'dsh-better-goal-round-limit')
   assert.equal(limit.props.value, '256')
@@ -696,6 +704,62 @@ test('settings page exposes defaults, fixed mode input, validation, and atomic s
   assert.match(pageText(page.renderer), /saved/)
 })
 
+test('implementation choices swap the section, write native ops, and ask for reload', async () => {
+  const page = await mountSettings({
+    value: {
+      implementation: 'enhanced',
+      nativeDefaultMaxGoalRounds: 256,
+      nativeBlockedAfterConsecutiveRounds: 3,
+      roundLimitMode: 'agent',
+      roundLimit: 256,
+      questionTimeoutSeconds: 120,
+    },
+  })
+  // 增强实现展示轮数策略段；原生装配参数随实现选择展开。
+  assert.equal(selectedChoice(page.renderer, 'dsh-better-goal-implementation'), 'enhanced')
+  assert.ok(byId(page.renderer, 'dsh-better-goal-round-limit-mode-agent'))
+  assert.equal(byId(page.renderer, 'dsh-better-goal-nativeDefaultMaxGoalRounds'), undefined)
+
+  await act(async () => {
+    byId(page.renderer, 'dsh-better-goal-implementation-native').props.onChange()
+  })
+  // 原生实现开放自身参数，增强策略收起并保留原值，不写入。
+  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit-mode-fixed'), undefined)
+  assert.equal(byId(page.renderer, 'dsh-better-goal-nativeDefaultMaxGoalRounds').props.value, '256')
+  assert.equal(byId(page.renderer, 'dsh-better-goal-nativeBlockedAfterConsecutiveRounds').props.value, '3')
+
+  await act(async () => {
+    byId(page.renderer, 'dsh-better-goal-nativeDefaultMaxGoalRounds').props.onChange({ target: { value: '0' } })
+  })
+  assert.match(pageText(page.renderer), /invalidNative/)
+  assert.equal(primaryButton(page.renderer).props.disabled, true)
+
+  await act(async () => {
+    byId(page.renderer, 'dsh-better-goal-nativeDefaultMaxGoalRounds').props.onChange({ target: { value: '7' } })
+  })
+  await act(async () => { byId(page.renderer, 'dsh-better-goal-implementation-enhanced').props.onChange() })
+  assert.equal(selectedChoice(page.renderer, 'dsh-better-goal-round-limit-mode'), 'agent')
+  assert.equal(byId(page.renderer, 'dsh-better-goal-nativeDefaultMaxGoalRounds'), undefined)
+  await act(async () => { byId(page.renderer, 'dsh-better-goal-implementation-native').props.onChange() })
+  assert.equal(byId(page.renderer, 'dsh-better-goal-nativeDefaultMaxGoalRounds').props.value, '7', 'switching away retains an inactive native draft')
+  await act(async () => { primaryButton(page.renderer).props.onClick() })
+  assert.equal(page.controller.calls.length, 1)
+  assert.deepEqual(page.controller.calls[0], {
+    ops: [
+      { op: 'set', path: ['implementation'], value: 'native' },
+      { op: 'set', path: ['nativeDefaultMaxGoalRounds'], value: 7 },
+    ],
+    revision: 3,
+  })
+  await act(async () => {
+    page.controller.finish(true)
+    await Promise.resolve()
+  })
+  // 实现/原生参数是装配时输入：保存成功必须提示重载，而不是宣称即时生效。
+  assert.match(pageText(page.renderer), /saved/)
+  assert.match(pageText(page.renderer), /reloadRequired/)
+})
+
 test('settings summary view and unavailable/read-only states', async () => {
   const setup = install()
   const record = setup.declare('plugins.row.config')
@@ -714,18 +778,19 @@ test('settings summary view and unavailable/read-only states', async () => {
 
 test('exported form helpers normalize defaults and validate drafts strictly', () => {
   const { shapeConfig, parseDraft, diffOps } = install().exports
-  const roundDefaults = { roundLimitMode: 'agent', roundLimit: 256 }
+  const { questionTimeoutSeconds, ...roundDefaults } = DEFAULTS
   assert.deepEqual(shapeConfig(undefined), roundDefaults)
   assert.deepEqual(shapeConfig({ roundLimitMode: 'nope', roundLimit: 0, questionTimeoutSeconds: 0 }), roundDefaults)
   assert.deepEqual(shapeConfig({ roundLimitMode: 'fixed', roundLimit: UNLIMITED, questionTimeoutSeconds: -1 }), {
+    ...roundDefaults,
     roundLimitMode: 'fixed',
     roundLimit: UNLIMITED,
   })
-  assert.deepEqual(parseDraft({ roundLimitMode: 'fixed', roundLimit: '1.5', questionTimeoutSeconds: '120' }, { roundLimit: 256 }), {
+  assert.deepEqual(parseDraft({ ...roundDefaults, roundLimitMode: 'fixed', roundLimit: '1.5' }, roundDefaults), {
     error: 'invalidRoundLimit',
   })
-  assert.deepEqual(parseDraft({ roundLimitMode: 'agent', roundLimit: 'ignored', questionTimeoutSeconds: '-1' }, { roundLimit: 256 }), {
-    value: { roundLimitMode: 'agent', roundLimit: 256 },
+  assert.deepEqual(parseDraft({ ...roundDefaults, roundLimit: 'ignored' }, roundDefaults), {
+    value: roundDefaults,
   })
   assert.deepEqual(diffOps(
     { roundLimitMode: 'agent', roundLimit: 256, questionTimeoutSeconds: 120 },
@@ -734,4 +799,112 @@ test('exported form helpers normalize defaults and validate drafts strictly', ()
     { op: 'set', path: ['roundLimitMode'], value: 'fixed' },
     { op: 'set', path: ['roundLimit'], value: 10 },
   ])
+})
+
+test('implementation choice saves only ownership, keeps legacy config, and hides inactive policy', async (context) => {
+  const originalFetch = globalThis.fetch
+  context.after(() => { globalThis.fetch = originalFetch })
+  const requests = []
+  globalThis.fetch = async (url) => {
+    requests.push(url)
+    return { ok: true, json: async () => ({ activeConfig: { implementation: 'enhanced', nativeDefaultMaxGoalRounds: 256, nativeBlockedAfterConsecutiveRounds: 3 }, runtime: { implementation: 'enhanced' }, requiresReload: false }) }
+  }
+  const page = await mountSettings({ value: { implementation: 'enhanced', roundLimitMode: 'fixed', roundLimit: 12, questionTimeoutSeconds: 75 } })
+  assert.equal(selectedChoice(page.renderer, 'dsh-better-goal-implementation'), 'enhanced')
+  assert.match(pageText(page.renderer), /runtimeActive/)
+  await act(async () => { byId(page.renderer, 'dsh-better-goal-round-limit').props.onChange({ target: { value: '23' } }) })
+  await act(async () => { byId(page.renderer, 'dsh-better-goal-implementation-native').props.onChange() })
+  await act(async () => { byId(page.renderer, 'dsh-better-goal-implementation-enhanced').props.onChange() })
+  assert.equal(selectedChoice(page.renderer, 'dsh-better-goal-round-limit-mode'), 'fixed')
+  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit').props.value, '23', 'switching away retains an inactive enhanced draft')
+  await act(async () => { byId(page.renderer, 'dsh-better-goal-implementation-native').props.onChange() })
+  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit-mode-fixed'), undefined)
+  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit'), undefined)
+  assert.match(pageText(page.renderer), /nativeSection/)
+  assert.match(pageText(page.renderer), /restartAfterSave/)
+  const save = primaryButton(page.renderer).props.onClick
+  await act(async () => { save(); save() })
+  assert.deepEqual(page.controller.calls, [{ ops: [{ op: 'set', path: ['implementation'], value: 'native' }], revision: 3 }])
+  assert.deepEqual(requests, ['/better-goal/api/config'])
+  await act(async () => { page.controller.finish(true); await Promise.resolve() })
+  assert.match(pageText(page.renderer), /saved/)
+  assert.match(pageText(page.renderer), /reloadRequired/, 'saved ownership differs from loaded implementation until reload')
+})
+
+test('goal details expand without mutation and multiline editing uses a composition-safe shortcut', async () => {
+  const bar = await mountGoalBar({ projection: { goal: activeGoal, roundsStarted: 2 } })
+  await act(async () => { byLabel(bar.renderer, 'action.details').props.onClick() })
+  assert.equal(byLabel(bar.renderer, 'action.details').props['aria-expanded'], true)
+  assert.equal(bar.setup.goalCalls.length, 0)
+  await act(async () => { byLabel(bar.renderer, 'action.edit').props.onClick() })
+  const input = byLabel(bar.renderer, 'objective.aria')
+  assert.equal(input.type, 'textarea')
+  await act(async () => { input.props.onChange({ target: { value: 'Line one\nLine two' } }) })
+  await act(async () => {
+    byLabel(bar.renderer, 'objective.aria').props.onKeyDown({ key: 'Enter', ctrlKey: true, nativeEvent: { isComposing: true } })
+  })
+  assert.equal(bar.setup.goalCalls.length, 0, 'IME composition never commits an edit')
+  await act(async () => {
+    byLabel(bar.renderer, 'objective.aria').props.onKeyDown({ key: 'Enter', ctrlKey: true, nativeEvent: { isComposing: false }, preventDefault() {} })
+  })
+  assert.equal(bar.setup.goalCalls[0].request.objective, 'Line one\nLine two')
+})
+
+test('completed and cleared goals remain searchable in read-only session history', async () => {
+  const entries = [
+    { ...activeGoal, id: 'finished', objective: 'Release shipped', phase: 'complete', cleared: false, roundsStarted: 3, updatedAt: 100 },
+    { ...activeGoal, id: 'removed', objective: 'Old prototype', phase: 'paused', cleared: true, roundsStarted: 2, updatedAt: 200 },
+  ]
+  const bar = await mountGoalBar({ projection: null, history: { entries, error: null } })
+  assert.ok(byLabel(bar.renderer, 'action.history'))
+  await act(async () => { byLabel(bar.renderer, 'action.history').props.onClick() })
+  assert.match(pageText(bar.renderer), /Release shipped/)
+  assert.match(pageText(bar.renderer), /Old prototype/)
+  await act(async () => { byLabel(bar.renderer, 'history.search').props.onChange({ target: { value: 'release' } }) })
+  assert.match(pageText(bar.renderer), /Release shipped/)
+  assert.doesNotMatch(pageText(bar.renderer), /Old prototype/)
+  await act(async () => { byLabel(bar.renderer, 'history.all').props.onChange({ target: { value: 'cleared' } }) })
+  assert.match(pageText(bar.renderer), /history.empty/)
+  assert.equal(bar.setup.goalCalls.length, 0)
+  assert.equal(bar.setup.commandCalls.length, 0)
+})
+
+test('existing native selection exposes its two policies and saves canonical fields only', async (context) => {
+  const originalFetch = globalThis.fetch
+  context.after(() => { globalThis.fetch = originalFetch })
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ activeConfig: { implementation: 'native', nativeDefaultMaxGoalRounds: 17, nativeBlockedAfterConsecutiveRounds: 5 }, runtime: { implementation: 'native' }, requiresReload: false }) })
+  const page = await mountSettings({ value: { implementation: 'native', nativeDefaultMaxGoalRounds: 17, nativeBlockedAfterConsecutiveRounds: 5, roundLimitMode: 'fixed', roundLimit: 99 } })
+  assert.equal(selectedChoice(page.renderer, 'dsh-better-goal-implementation'), 'native')
+  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit-mode-fixed'), undefined)
+  const nativeCap = () => byId(page.renderer, 'dsh-better-goal-nativeDefaultMaxGoalRounds')
+  const nativeThreshold = () => byId(page.renderer, 'dsh-better-goal-nativeBlockedAfterConsecutiveRounds')
+  assert.equal(nativeCap().props.value, '17')
+  assert.equal(nativeThreshold().props.value, '5')
+  assert.equal(nativeCap().props.disabled, false)
+  assert.equal(nativeThreshold().props.disabled, false)
+  await act(async () => { nativeCap().props.onChange({ target: { value: '0' } }) })
+  assert.match(pageText(page.renderer), /invalidNative/)
+  assert.equal(primaryButton(page.renderer).props.disabled, true)
+  await act(async () => {
+    nativeCap().props.onChange({ target: { value: '24' } })
+    nativeThreshold().props.onChange({ target: { value: '2' } })
+  })
+  assert.match(pageText(page.renderer), /restartAfterSave/)
+  await act(async () => { primaryButton(page.renderer).props.onClick() })
+  assert.deepEqual(page.controller.calls, [{ ops: [
+    { op: 'set', path: ['nativeDefaultMaxGoalRounds'], value: 24 },
+    { op: 'set', path: ['nativeBlockedAfterConsecutiveRounds'], value: 2 },
+  ], revision: 3 }])
+  await act(async () => { page.controller.finish(true); await Promise.resolve() })
+  assert.match(pageText(page.renderer), /saved/)
+  assert.match(pageText(page.renderer), /reloadRequired/)
+})
+
+test('inactive policy drafts preserve existing canonical parameters without validating hidden input', () => {
+  const { shapeConfig, parseDraft } = install().exports
+  const host = shapeConfig({ implementation: 'native', nativeDefaultMaxGoalRounds: 17, nativeBlockedAfterConsecutiveRounds: 5, roundLimitMode: 'fixed', roundLimit: 99 })
+  const enhanced = parseDraft({ implementation: 'enhanced', nativeDefaultMaxGoalRounds: 'invalid', nativeBlockedAfterConsecutiveRounds: '0', roundLimitMode: 'agent', roundLimit: 'ignored' }, host)
+  assert.deepEqual(enhanced.value, { ...host, implementation: 'enhanced', roundLimitMode: 'agent' })
+  const native = parseDraft({ implementation: 'native', nativeDefaultMaxGoalRounds: '17', nativeBlockedAfterConsecutiveRounds: '5', roundLimitMode: 'fixed', roundLimit: 'invalid' }, host)
+  assert.deepEqual(native.value, host)
 })

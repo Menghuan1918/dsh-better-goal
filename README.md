@@ -8,7 +8,7 @@
 
 <p>
   <a href="https://www.npmjs.com/package/dsh-better-goal"><img src="https://img.shields.io/npm/v/dsh-better-goal.svg" alt="npm 版本"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" alt="许可证：GPL-3.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="许可证：Apache-2.0"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/DSH-0.2.1--rc.2_%3C0.3.0-6f42c1.svg" alt="DSH 0.2.1-rc.2 至 0.3.0 之前"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/node-%5E22.19_%7C%7C_%3E%3D24-339933.svg" alt="Node.js ^22.19.0 或 >=24.0.0"></a>
 </p>
@@ -156,25 +156,30 @@ flowchart TD
 
 ### GoalBar
 
-输入框上方会出现目标条，显示当前状态、目标摘要和 `第 n / 上限 轮`。暂停、恢复、编辑和清除按钮会按当前状态出现；完成的目标会自动隐藏。
+输入框上方的目标条显示状态、目标摘要和轮数；固定上限还显示进度。点击摘要查看完整目标，编辑时支持多行，使用 Ctrl/⌘ + Enter 保存。暂停、恢复、编辑和清除按钮按状态出现。
+
+完成后收起当前目标，历史入口继续保留。点击历史图标可搜索、按状态筛选并展开已完成或已清除的目标；历史跟随会话恢复。
 
 > 目标条不负责新建或整体替换目标：用 `/goal <目标>`（或 `/goal set <目标>`），或让 Agent 设定。
 
 ## 设置
 
-打开 **Plugins → dsh-better-goal → dsh-better-goal 行**；由 `@menghuan1918/dsh-apollo` 装配时，打开 **Plugins → @menghuan1918/dsh-apollo → dsh-better-goal 行**。两处操作同一份配置。保存后立即生效，不需要重启。
+打开 **Plugins → dsh-better-goal → dsh-better-goal 行**；由 `@menghuan1918/dsh-apollo` 装配时，打开 **Plugins → @menghuan1918/dsh-apollo → dsh-better-goal 行**。两处操作同一份配置。增强轮数策略保存后热更新；目标实现和两项原生参数保存后需要重启对应 DSH profile，页面会区分已保存配置与实际运行配置。
 
 ### 默认设置速览
 
 | 设置与默认值 | 说明 |
 | --- | --- |
-| **轮数上限策略**<br>`roundLimitMode`<br>默认 **`agent`**（由 Agent 决定） | 默认让 Agent 决定；创建时没有给上限，就不设轮数上限。 |
+| **目标实现**<br>`implementation`<br>默认 **`enhanced`**（增强 Goal） | **`enhanced`**：本插件自己的服务、单一 `goal` 工具、`/goal` 命令与续跑驱动。**`native`**：宿主原生 `dsh-goal` 服务、`get_goal`/`create_goal`/`update_goal` 工具、命令与续跑驱动。两套实现读写同一份目标记录，不会同时运行；切换保存后**重载 profile** 才替换装配。 |
+| **原生默认轮数**<br>`nativeDefaultMaxGoalRounds`<br>默认 **`256`** | 只在 `native` 实现生效：调用方未指定轮数时原生服务使用的默认上限。保存后重载 profile 生效。 |
+| **原生受阻轮数**<br>`nativeBlockedAfterConsecutiveRounds`<br>默认 **`3`** | 只在 `native` 实现生效：原生自主目标轮次达到该累计轮数后，模型才可报告受阻。保存后重载 profile 生效。 |
+| **轮数上限策略**<br>`roundLimitMode`<br>默认 **`agent`**（由 Agent 决定） | 只在 `enhanced` 实现生效：默认让 Agent 决定；创建时没有给上限，就不设轮数上限。 |
 | **固定轮数上限**<br>`roundLimit`<br>默认 **`256`** | 只在“固定轮数”模式生效；达到后停止自动续跑。 |
 | **旧提问超时字段**<br>`questionTimeoutSeconds` | **已弃用，仅保留读取**；新的等待、续期和超时行为在 **dsh-better-ask-user** 中配置。 |
 
-> **默认组合：`agent` + `256`。** 其中 `256` 只在切到“固定轮数”后生效。旧配置里的 `120` 秒只用于一次性迁移到 ask-user，不再影响本插件的运行。
+> **默认组合：`enhanced` + `agent` + `256`。** 其中 `256` 只在切到“固定轮数”后生效。`implementation` 与两个 `native*` 字段是装配时输入：保存写入配置，重载 profile 才换装配；`roundLimitMode`/`roundLimit` 热更新、立即生效。旧配置里的 `120` 秒只用于一次性迁移到 ask-user，不再影响本插件的运行。
 
-设置只影响之后的新轮次和新提问：不重置已用轮数，也不会自动恢复已经停下的目标。
+增强轮数策略只影响之后的新轮次，不重置已用轮数，也不会自动恢复已经停下的目标。原生模式使用本页的原生参数，增强轮数策略保留但不生效。
 
 ### 轮数上限：三种模式
 
@@ -228,7 +233,7 @@ flowchart TD
 <details>
 <summary><strong>设置在哪里？保存后要重启吗？</strong></summary>
 
-独立安装时在 **Plugins → dsh-better-goal → dsh-better-goal 行**；由 `@menghuan1918/dsh-apollo` 装配时在 **Plugins → @menghuan1918/dsh-apollo → dsh-better-goal 行**。三个运行时设置保存后立即生效，不需要重启。安装、升级或改动插件组合后仍需重启 DSH profile。
+独立安装时在 **Plugins → dsh-better-goal → dsh-better-goal 行**；由 `@menghuan1918/dsh-apollo` 装配时在 **Plugins → @menghuan1918/dsh-apollo → dsh-better-goal 行**。增强轮数策略保存后热更新；`implementation` 和两项 `native*` 参数保存后需要重启 DSH profile。刷新网页不会替换运行中的实现。安装、升级或改动插件组合后也需重启 profile。
 
 </details>
 
@@ -283,5 +288,5 @@ dsh plugin --profile <profile> remove dsh-better-goal
 ## 开发与许可
 
 - [开发文档](docs/DEVELOPMENT.md)：数据兼容、双入口限制、测试与真实 DSH 冒烟、卸载回退。
-- 许可证：[GPL-3.0](LICENSE)。移植的 DeepSeek Harness 代码保留 MIT 声明，见[第三方声明](third-party/NOTICE)和 [MIT 许可证](third-party/LICENSE-MIT-dsh)。
+- 许可证：[Apache-2.0](LICENSE)。移植的 DeepSeek Harness 代码保留 MIT 声明，见[第三方声明](third-party/NOTICE)和 [MIT 许可证](third-party/LICENSE-MIT-dsh)。
 - 项目地址：[Menghuan1918/dsh-better-goal](https://github.com/Menghuan1918/dsh-better-goal)。

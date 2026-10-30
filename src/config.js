@@ -5,6 +5,17 @@
  * settings row. The loader re-exports `Config` from here, so DSH validates and
  * resolves row configuration through this schema:
  *
+ *   - `implementation` selects which assembly this row mounts: `enhanced`
+ *     (this package's own GoalService/tool/command/driver) or `native` (the
+ *     shipped `dsh-goal` service + `dsh-tool-goal` + `dsh-command-goal` +
+ *     `dsh-goal-round-driver`). Both share the same durable goal format, so
+ *     records survive a switch. The choice is read once at `apply` — saving
+ *     persists it, and the next profile reload swaps the whole assembly;
+ *     the two implementations never run side by side.
+ *   - `nativeDefaultMaxGoalRounds` / `nativeBlockedAfterConsecutiveRounds`
+ *     configure the native assembly (service default cap and tool blocking
+ *     threshold). Like `implementation` they are mount-time inputs: volatile
+ *     writes persist but apply on reload.
  *   - `roundLimitMode` selects how a goal's round cap is resolved:
  *     `agent` (the model may pass `max_goal_rounds`), `unlimited` (the
  *     compatibility sentinel), or `fixed` (the configured `roundLimit`).
@@ -18,6 +29,9 @@
  * the live fiber instead of remounting the row. Consumers (`readConfig`,
  * `resolveRoundLimit` and the UI form, which duplicates the bounds because it
  * is a zero-build closure) read the current value at each new admission.
+ * `roundLimitMode`/`roundLimit` apply to the running enhanced assembly at the
+ * next admission; `implementation` and the `native*` fields are read once at
+ * mount, so their saved value takes effect on profile reload.
  *
  * The unlimited value is Number.MAX_SAFE_INTEGER: native goal/change v1 stores
  * a positive safe-integer cap, and the human explicitly accepted this
@@ -48,6 +62,9 @@ const MAX_QUESTION_TIMEOUT_SECONDS = 2147483
  * parse through the schema (the client form mirrors these exact values).
  */
 export const DEFAULTS = Object.freeze({
+  implementation: 'enhanced',
+  nativeDefaultMaxGoalRounds: 256,
+  nativeBlockedAfterConsecutiveRounds: 3,
   roundLimitMode: 'agent',
   roundLimit: 256,
   questionTimeoutSeconds: 120,
@@ -73,6 +90,12 @@ const QuestionTimeout = z
  * hot-update on the live fiber and apply to newly admitted goal rounds/waits.
  */
 export const Config = z.object({
+  /** Selected service/tool/driver set; save, then reload the profile to apply. */
+  implementation: z.union(['enhanced', 'native']).default(DEFAULTS.implementation).volatile(),
+  /** Native service default for a goal whose caller omits its cap. */
+  nativeDefaultMaxGoalRounds: z.natural().min(1).max(UNLIMITED_ROUNDS).default(DEFAULTS.nativeDefaultMaxGoalRounds).volatile(),
+  /** Native tool policy for model-reported blocking. */
+  nativeBlockedAfterConsecutiveRounds: z.natural().min(1).max(UNLIMITED_ROUNDS).default(DEFAULTS.nativeBlockedAfterConsecutiveRounds).volatile(),
   /** Round-cap policy: agent-chosen, unlimited, or the configured fixed cap. */
   roundLimitMode: z.union(ROUND_LIMIT_MODES).default(DEFAULTS.roundLimitMode).volatile(),
   /** Fixed cap; used only when `roundLimitMode` is `fixed`. */
@@ -156,7 +179,8 @@ export function resolveRoundLimit(config, supplied, current) {
 }
 
 /**
- * Read the three hot settings as one plain snapshot.
+ * Read all saved settings as one plain snapshot. Assembly selection and native
+ * policy are retained until reload; enhanced round policy stays hot.
  *
  * `config` is normally the live row config whose fields may be cosmokit
  * volatile references; each field is unwrapped at call time, so a hot update is
@@ -165,10 +189,14 @@ export function resolveRoundLimit(config, supplied, current) {
  * and throw `TypeError` otherwise; values are never silently coerced.
  *
  * @param config - live row config (volatile fields unwrap), or a plain object.
- * @returns `{ roundLimitMode, roundLimit, questionTimeoutSeconds }` plain JSON.
+ * @returns the six canonical configuration fields as plain JSON.
  * @throws {TypeError} for an invalid mode, cap, or question timeout.
  */
 export function readConfig(config) {
+  const implementation = fieldOf(config, 'implementation') ?? DEFAULTS.implementation
+  if (!['enhanced', 'native'].includes(implementation)) throw new TypeError('implementation must be enhanced or native')
+  const nativeDefaultMaxGoalRounds = requirePositiveSafeInteger(fieldOf(config, 'nativeDefaultMaxGoalRounds') ?? DEFAULTS.nativeDefaultMaxGoalRounds, 'nativeDefaultMaxGoalRounds')
+  const nativeBlockedAfterConsecutiveRounds = requirePositiveSafeInteger(fieldOf(config, 'nativeBlockedAfterConsecutiveRounds') ?? DEFAULTS.nativeBlockedAfterConsecutiveRounds, 'nativeBlockedAfterConsecutiveRounds')
   const mode = fieldOf(config, 'roundLimitMode')
   const roundLimitMode = mode == null ? DEFAULTS.roundLimitMode : mode
   if (!ROUND_LIMIT_MODES.includes(roundLimitMode)) {
@@ -180,5 +208,5 @@ export function readConfig(config) {
   const questionTimeoutSeconds = timeout == null
     ? DEFAULTS.questionTimeoutSeconds
     : requireQuestionTimeout(timeout)
-  return { roundLimitMode, roundLimit, questionTimeoutSeconds }
+  return { implementation, nativeDefaultMaxGoalRounds, nativeBlockedAfterConsecutiveRounds, roundLimitMode, roundLimit, questionTimeoutSeconds }
 }

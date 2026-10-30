@@ -36,6 +36,9 @@ function volatileRef(value) {
 function resolved(value) {
   const config = Config(value)
   return {
+    implementation: config.implementation.get(),
+    nativeDefaultMaxGoalRounds: config.nativeDefaultMaxGoalRounds.get(),
+    nativeBlockedAfterConsecutiveRounds: config.nativeBlockedAfterConsecutiveRounds.get(),
     roundLimitMode: config.roundLimitMode.get(),
     roundLimit: config.roundLimit.get(),
     questionTimeoutSeconds: config.questionTimeoutSeconds.get(),
@@ -50,6 +53,9 @@ test('identifier exports match the independent row', () => {
 
 test('DEFAULTS is the exact frozen JSON shape', () => {
   assert.deepEqual(DEFAULTS, {
+    implementation: 'enhanced',
+    nativeDefaultMaxGoalRounds: 256,
+    nativeBlockedAfterConsecutiveRounds: 3,
     roundLimitMode: 'agent',
     roundLimit: 256,
     questionTimeoutSeconds: 120,
@@ -76,11 +82,13 @@ test('Config({}) resolves the documented defaults through volatile references', 
 
 test('Config accepts the boundary values of each field', () => {
   assert.deepEqual(resolved({ roundLimitMode: 'fixed', roundLimit: 1, questionTimeoutSeconds: -1 }), {
+    ...DEFAULTS,
     roundLimitMode: 'fixed',
     roundLimit: 1,
     questionTimeoutSeconds: -1,
   })
   assert.deepEqual(resolved({ roundLimitMode: 'unlimited', roundLimit: UNLIMITED_ROUNDS, questionTimeoutSeconds: 2147483 }), {
+    ...DEFAULTS,
     roundLimitMode: 'unlimited',
     roundLimit: UNLIMITED_ROUNDS,
     questionTimeoutSeconds: 2147483,
@@ -108,6 +116,9 @@ test('Config rejects zero, fractional, oversized, and non-number question timeou
 test('every schema field is volatile and no other field exists', () => {
   const liveSchema = new z(Config.toJSON())
   assert.deepEqual(Object.keys(liveSchema.dict ?? {}).sort(), [
+    'implementation',
+    'nativeBlockedAfterConsecutiveRounds',
+    'nativeDefaultMaxGoalRounds',
     'questionTimeoutSeconds',
     'roundLimit',
     'roundLimitMode',
@@ -120,7 +131,7 @@ test('every schema field is volatile and no other field exists', () => {
     for (const child of node.list ?? []) walk(child, [...path, '|'])
   }
   walk(liveSchema, [])
-  assert.deepEqual(paths.sort(), ['questionTimeoutSeconds', 'roundLimit', 'roundLimitMode'])
+  assert.deepEqual(paths.sort(), Object.keys(DEFAULTS).sort())
 })
 
 test('resolveRoundLimit: agent mode prefers supplied, then current, then sentinel', () => {
@@ -219,6 +230,7 @@ test('readConfig: volatile fields unwrap and hot updates are read on the next ca
   timeout = -1
   const hot = readConfig(config)
   assert.deepEqual(hot, {
+    ...DEFAULTS,
     roundLimitMode: 'fixed',
     roundLimit: 1024,
     questionTimeoutSeconds: -1,
@@ -227,6 +239,20 @@ test('readConfig: volatile fields unwrap and hot updates are read on the next ca
   hot.roundLimit = 5
   assert.equal(readConfig(config).roundLimit, 1024)
   assert.notEqual(readConfig(config), readConfig(config))
+})
+
+test('implementation and native policy are validated and read from volatile fields', () => {
+  const value = { implementation: 'native', nativeDefaultMaxGoalRounds: 8, nativeBlockedAfterConsecutiveRounds: 2 }
+  assert.deepEqual(resolved(value), { ...DEFAULTS, ...value })
+  assert.deepEqual(readConfig({
+    implementation: volatileRef('native'),
+    nativeDefaultMaxGoalRounds: volatileRef(8),
+    nativeBlockedAfterConsecutiveRounds: volatileRef(2),
+  }), { ...DEFAULTS, ...value })
+  for (const invalid of [{ implementation: 'both' }, { nativeDefaultMaxGoalRounds: 0 }, { nativeBlockedAfterConsecutiveRounds: 1.5 }]) {
+    assert.throws(() => Config(invalid))
+    assert.throws(() => readConfig(invalid))
+  }
 })
 
 test('readConfig: present values must satisfy the schema boundaries', () => {
@@ -250,4 +276,24 @@ test('readConfig: present values must satisfy the schema boundaries', () => {
   assert.equal(readConfig({ roundLimit: UNLIMITED_ROUNDS }).roundLimit, UNLIMITED_ROUNDS)
   assert.equal(readConfig({ questionTimeoutSeconds: -1 }).questionTimeoutSeconds, -1)
   assert.equal(readConfig({ questionTimeoutSeconds: 2147483 }).questionTimeoutSeconds, 2147483)
+})
+
+test('canonical implementation and native policy fields preserve existing configuration', () => {
+  const existing = { implementation: 'native', nativeDefaultMaxGoalRounds: 17, nativeBlockedAfterConsecutiveRounds: 2 }
+  assert.deepEqual(resolved(existing), { ...DEFAULTS, ...existing })
+  assert.deepEqual(readConfig(Object.fromEntries(Object.entries(existing).map(([key, value]) => [key, volatileRef(value)]))), { ...DEFAULTS, ...existing })
+  for (const implementation of ['better', true, false, 'unknown', 0]) {
+    assert.throws(() => Config({ implementation }))
+    assert.throws(() => readConfig({ implementation }), /implementation must be enhanced or native/)
+  }
+  for (const key of ['nativeDefaultMaxGoalRounds', 'nativeBlockedAfterConsecutiveRounds']) {
+    for (const value of [0, -1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1, NaN, Infinity]) {
+      assert.throws(() => Config({ [key]: value }))
+      assert.throws(() => readConfig({ [key]: value }), TypeError)
+    }
+    for (const value of [1, UNLIMITED_ROUNDS]) {
+      assert.equal(resolved({ [key]: value })[key], value)
+      assert.equal(readConfig({ [key]: value })[key], value)
+    }
+  }
 })

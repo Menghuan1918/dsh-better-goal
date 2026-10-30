@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, writeFile, cp, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -10,7 +11,9 @@ const dsh = process.env.DSH_PACKAGE_ROOT
 if (!dsh) throw new Error('Set DSH_PACKAGE_ROOT to the installed @deepseek-ai/dsh package')
 const mode = process.env.GOAL_SMOKE_MODE ?? 'standalone'
 const hot = process.env.GOAL_SMOKE_HOT === '1'
+const implementation = process.env.GOAL_SMOKE_IMPLEMENTATION ?? 'enhanced'
 assert.ok(['standalone', 'apollo', 'both'].includes(mode))
+assert.ok(['enhanced', 'native'].includes(implementation))
 const apolloRoot = mode === 'standalone' ? undefined : resolve(process.env.APOLLO_PACKAGE_ROOT ?? join(root, '../dsh-apollo'))
 const apolloName = apolloRoot ? JSON.parse(await readFile(join(apolloRoot, 'package.json'), 'utf8')).name : undefined
 const home = await mkdtemp(join(tmpdir(), 'dsh-better-goal-smoke-'))
@@ -44,10 +47,25 @@ if (mode !== 'standalone') {
   // Transitive-only dependency path: a selected Apollo bundle discovers this
   // package through its dependency closure, not through selected goal bundles.
   if (mode === 'apollo') delete manifest.dependencies['dsh-better-goal']
+  // Apollo's bundle closure also pulls the sibling plugins (eng preset needs
+  // the compact engine). Resolve them from their sibling checkouts; env vars
+  // override each root. The goal row itself resolves through `modules` above.
+  const siblings = {
+    '@menghuan1918/dsh-better-subagent': process.env.SUBAGENT_PACKAGE_ROOT ?? join(root, '../dsh-better-subagent'),
+    'dsh-better-compact': process.env.COMPACT_PACKAGE_ROOT ?? join(root, '../dsh-better-compact'),
+    'dsh-better-ask-user': process.env.ASK_USER_PACKAGE_ROOT ?? join(root, '../dsh-better-ask-user'),
+    'dsh-better-ptc': process.env.PTC_PACKAGE_ROOT ?? join(root, '../dsh-better-ptc'),
+  }
+  for (const [name, target] of Object.entries(siblings)) {
+    const dest = join(modules, name)
+    await mkdir(dirname(dest), { recursive: true })
+    if (!existsSync(dest)) await symlink(resolve(target), dest)
+  }
 }
 await writeFile(packageFile, JSON.stringify(manifest, null, 2))
 const preset = mode === 'standalone' ? 'standard' : 'eng'
 await writeFile(join(dir, 'cordis.patch.yml'), JSON.stringify([
+  { id: 'dsh-better-goal', config: { implementation, nativeDefaultMaxGoalRounds: 7, nativeBlockedAfterConsecutiveRounds: 2 } },
   ...(mode === 'standalone' ? A.loadOverlayPatches('better-goal-smoke', join(dirname(dsh), 'dsh-web-app/presets/standard.patch.yml')) : []),
   { id: 'headless-startup', disabled: true }, { id: 'headless-runner', disabled: true },
   { id: 'credentials', disabled: false, config: { watch: false } },
@@ -97,6 +115,60 @@ try {
   const created = await ctx.agents.create({ sessionId: randomUUID(), meta: { cwd: home, agentPreset: preset }, agentOptions: { provider: 'it-noop', model: 'noop' }, setup })
   const agent = created.agent
   assert.ok(ctx.get('goals'))
+  if (implementation === 'native') {
+    assert.equal(ctx.tools.get('goal', agent), undefined, 'enhanced tool is not registered in native mode')
+    for (const name of ['get_goal', 'create_goal', 'update_goal']) assert.ok(ctx.tools.get(name, agent), name)
+    const { default: NativeGoalService } = await import(pathToFileURL(join(dirname(dsh), 'dsh-goal/lib/index.js')))
+    assert.ok(ctx.get('goals')[symbols.original] instanceof NativeGoalService, 'the upstream service owns native mode')
+    const status = ctx.get('betterGoalConfig').status()
+    assert.equal(status.runtime.implementation, 'native')
+    assert.equal(status.capabilities.roundLimitPolicy, false, 'enhanced round policy is not applied to the native service')
+    assert.equal(status.activeConfig.nativeDefaultMaxGoalRounds, 7)
+    const plan = agent.ctx.get('planMode')
+    plan.set(agent, true)
+    const command = async (line) => {
+      const result = await ctx.commands.execute(agent, line, [], new AbortController().signal)
+      assert.equal(result?.result.kind, 'success', JSON.stringify(result))
+    }
+    await command('/goal Native implementation through the real profile')
+    assert.equal(ctx.goals.get(agent).maxGoalRounds, 7)
+    await command('/goal pause')
+    assert.equal(ctx.goals.get(agent).phase, 'paused')
+    await command('/goal edit Native goal after editing')
+    assert.equal(ctx.goals.get(agent).objective, 'Native goal after editing')
+    const row = (await ctx.settings.describe()).find((entry) => entry.ns === 'dsh-better-goal')
+    assert.ok(row)
+    if (mode === 'both') {
+      // Two explicit bundle sources insert this row: the host keeps it readable
+      // but rejects profile writes as overridden — the documented read-only case.
+      await assert.rejects(
+        () => ctx.settings.update('dsh-better-goal', { ...row.user, implementation: 'enhanced' }, row.revision),
+        /overridden by a home patch or command-line overlay|No configurable plugin entry/,
+      )
+    } else {
+      await ctx.settings.update('dsh-better-goal', { ...row.user, implementation: 'enhanced' }, row.revision)
+      assert.ok(ctx.get('goals')[symbols.original] instanceof NativeGoalService, 'saving the implementation does not swap a live goal domain')
+      assert.equal(ctx.tools.get('goal', agent), undefined, 'implementation changes wait for profile reload')
+    }
+    plan.set(agent, false)
+    scripted = [() => ({ $tool: 'get_goal' }), null]
+    const { createUserMessage } = await import(pathToFileURL(join(dirname(dsh), 'dsh-llm/lib/index.js')))
+    const read = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { off(); reject(new Error('Timed out reading the native goal')) }, 15000)
+      const off = ctx.on('session/event', (session, event) => {
+        if (session.id !== agent.id || event.type !== 'turn/end') return
+        clearTimeout(timer); off(); resolve()
+      })
+    })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Read the current goal without resuming it.' }], source: { kind: 'user' } }))
+    await read
+    await agent.whenIdle()
+    assert.equal(scripted.length, 0)
+    assert.equal(ctx.goals.get(agent).phase, 'paused')
+    const result = { passed: true, mode, implementation, home, checks: ['real-profile-boot', 'upstream-goal-service', 'native-tools-only', 'native-default-cap', 'native-command-edit-pause', 'native-tool-dispatch', 'implementation-save-waits-for-reload'] }
+    await writeFile(join(home, 'results.json'), JSON.stringify(result, null, 2))
+    console.log('BETTER_GOAL_NATIVE_SMOKE_PASSED', JSON.stringify(result))
+  } else {
   const goalTool = ctx.tools.get('goal', agent)
   assert.ok(goalTool, 'unified tool must be visible')
   assert.deepEqual(goalTool.parameters.properties.action.enum, ['get', 'set', 'pause', 'complete', 'resume'])
@@ -263,6 +335,7 @@ try {
   if (mode !== 'standalone') result.checks.push('eng-ptc-single-goal-tool')
   await writeFile(join(home, 'results.json'), JSON.stringify(result, null, 2))
   console.log('BETTER_GOAL_RUNTIME_SMOKE_PASSED', JSON.stringify(result))
+  }
 } finally {
   if (ctx) await ctx.fiber.dispose()
 }

@@ -30,6 +30,7 @@ window.__ModuleLoader__.load({
       createElement: h,
       useCallback,
       useEffect,
+      useDeferredValue,
       useRef,
       useState,
     } = React
@@ -61,27 +62,27 @@ window.__ModuleLoader__.load({
 
     /** Simplified Chinese dictionary (key-set source of truth). */
     const zh = {
-      summary: '独立目标条与轮数上限策略',
-      waitingForm: '正在等待宿主提供这一行的配置快照…',
-      noFormHint: '长时间停在这里说明宿主没有为这一行提供可编辑配置：本部署没组合 dsh-settings/config-editor，或本行的 Config 未被识别。',
+      summary: '目标与自动续跑',
+      waitingForm: '正在加载设置…',
+      noFormHint: '请检查插件的设置服务是否已加载，并使用受信任的连接。',
       loading: '正在读取配置…',
-      unavailable: '当前连接下该配置不可用：请通过 loopback 地址访问，或在行配置里把该权威加入 trustedHosts。',
-      readonly: '当前连接只读（设置镜像为进程内 memory），无法写入宿主配置。',
+      unavailable: '当前连接无法访问设置。',
+      readonly: '此连接只能查看设置。',
       save: '保存',
       saving: '保存中…',
-      saved: '已保存，即时生效。',
-      conflict: '宿主拒绝了这次写入：配置可能已被其他改动更新或被更高优先级配置覆盖，已重新读取宿主值。',
+      saved: '已保存',
+      conflict: '配置已被更新，已重新读取。请检查后重试。',
       saveFailed: '保存失败：',
       reset: '放弃改动',
-      modeLabel: '轮数上限策略',
+      modeLabel: '轮数策略',
       modeAgent: '由 Agent 决定',
-      modeAgentHint: '模型可传入 max_goal_rounds；不传且非编辑已有目标时使用无上限。',
+      modeAgentHint: '可由 Agent 设置；未设置时不限轮数。',
       modeUnlimited: '无上限',
-      modeUnlimitedHint: '忽略模型传入的轮数上限，使用兼容哨兵（UI 显示为无上限）。',
+      modeUnlimitedHint: '持续推进，直到完成或暂停。',
       modeFixed: '固定轮数',
-      modeFixedHint: '始终使用下面填写的固定上限，忽略模型传入值。',
-      roundLimitLabel: '固定轮数上限',
-      roundLimitHint: '仅“固定轮数”模式生效；必须是 1 到 9007199254740991 之间的正整数。',
+      modeFixedHint: '每个目标最多运行指定轮数。',
+      roundLimitLabel: '轮数上限',
+      roundLimitHint: '达到上限后停止续跑。',
       roundLimitUnlimited: '当前值等于兼容哨兵，界面显示为无上限。',
       questionTimeoutLabel: '目标提问超时（秒）',
       questionTimeoutHint: '-1 表示永不超时；否则为 1 到 2147483 的整数。热设置只影响新发起的等待，不改变当前等待。',
@@ -91,12 +92,12 @@ window.__ModuleLoader__.load({
       invalidQuestionTimeout: '提问超时必须是 -1，或 1 到 2147483 之间的整数。',
       readonlyNote: '只读：当前无法写入宿主配置。',
       unavailableNote: '不可写：当前连接下该配置不可用。',
-      settingsTitle: '目标运行设置',
-      settingsIntro: '保存后即时生效，无需重启。热设置只影响新发起的目标轮次与提问等待。',
-      'phase.active': '进行中的目标',
-      'phase.active.disarmed': '已暂停的目标',
-      'phase.paused': '已暂停的目标',
-      'phase.blocked': '受阻的目标',
+      settingsTitle: '目标',
+      settingsIntro: '',
+      'phase.active': '进行中',
+      'phase.active.disarmed': '已暂停',
+      'phase.paused': '已暂停',
+      'phase.blocked': '受阻',
       'objective.aria': '目标内容',
       'edit.placeholder': '输入新的目标内容',
       'action.save': '保存目标',
@@ -107,31 +108,73 @@ window.__ModuleLoader__.load({
       'action.clear': '清除目标',
       'cap.unlimited': '无上限',
       'meta.rounds': '第 {rounds} / {max} 轮',
+      nativeSection: '原生策略',
+      nativeDefaultLabel: '默认轮数上限',
+      nativeDefaultHint: '新目标未指定上限时使用；已有目标保持原值。',
+      nativeBlockedLabel: '报告受阻门槛',
+      nativeBlockedHint: 'Agent 执行到此轮数后可报告受阻。',
+      invalidImplementation: '请选择目标实现。',
+      invalidNative: '原生参数必须是正安全整数。',
+      help: '了解设置',
+      implementation: '目标实现',
+      replaceNative: '替换原生 Goal',
+      enhancedDescription: '接管原生目标，支持灵活的轮数策略。',
+      nativeDescription: '使用宿主原生目标与轮数规则。',
+      unsaved: '未保存的改动',
+      restartAfterSave: '保存后需重启 profile',
+      editShortcut: '⌘ / Ctrl + Enter 保存 · Esc 取消',
+      replaceHint: '关闭后由宿主原生 Goal 管理目标与续跑。保存后重启当前 profile。',
+      reloadRequired: '重启 profile 后生效',
+      runtimeBetter: '增强',
+      runtimeNative: '原生',
+      runtimeLoading: '正在检查运行状态…',
+      runtimeUnavailable: '无法读取运行状态。',
+      nativeDependency: '原生模式使用宿主的轮数策略。',
+      runtimeActive: '当前运行：{implementation}',
+      roundsSection: '自动续跑',
+      legacySection: '兼容配置',
+      legacyHint: '旧版提问超时仅为迁移保留。提问等待请在提问插件中设置。',
+      legacyTimeout: '原提问等待：{seconds} 秒',
+      never: '永不超时',
+      'action.details': '展开目标',
+      'action.history': '目标历史',
+      'action.hideHistory': '收起历史',
+      'phase.complete': '已完成',
+      'phase.cleared': '已清除',
+      'phase.archived': '已替换',
+      'history.title': '目标历史',
+      'history.search': '搜索目标',
+      'history.all': '全部状态',
+      'history.empty': '没有匹配的目标',
+      'history.rounds': '{rounds} / {max} 轮',
+      'history.count': '{count} 个目标',
+      'history.updated': '更新于 {time}',
+      'history.error': '目标历史读取失败',
     }
 
     /** English dictionary, checked complete against the zh key set. */
     const en = {
-      summary: 'Standalone GoalBar and round-cap policy',
-      waitingForm: 'Waiting for the host to provide this row’s configuration snapshot…',
-      noFormHint: 'Staying here means the host exposes no editable config for this row: dsh-settings/config-editor is not composed, or this row’s Config was not recognized.',
+      summary: 'Goals and continuation',
+      waitingForm: 'Loading settings…',
+      noFormHint: 'Check that the plugin settings service is loaded and use a trusted connection.',
       loading: 'Loading configuration…',
-      unavailable: 'This configuration is unavailable on the current connection: use a loopback address, or list this authority in the row config trustedHosts.',
-      readonly: 'This connection is read-only (settings mirror is process-local memory); host configuration cannot be written.',
+      unavailable: 'Settings are unavailable on this connection.',
+      readonly: 'Settings are read-only on this connection.',
       save: 'Save',
       saving: 'Saving…',
-      saved: 'Saved and applied.',
-      conflict: 'The host refused this write: the configuration changed elsewhere or a higher layer overrides it. Host values were reloaded.',
+      saved: 'Saved',
+      conflict: 'Settings changed elsewhere and were reloaded. Review and try again.',
       saveFailed: 'Save failed: ',
       reset: 'Discard',
-      modeLabel: 'Round-cap policy',
+      modeLabel: 'Round policy',
       modeAgent: 'Agent decides',
-      modeAgentHint: 'The model may pass max_goal_rounds; omission on create (and no current cap on edit) means unlimited.',
+      modeAgentHint: 'The agent can set a cap; defaults to unlimited.',
       modeUnlimited: 'Unlimited',
-      modeUnlimitedHint: 'Ignore model-supplied caps and use the compatibility sentinel (rendered as unlimited).',
+      modeUnlimitedHint: 'Continue until complete or paused.',
       modeFixed: 'Fixed rounds',
-      modeFixedHint: 'Always use the fixed cap below; model-supplied values are ignored.',
-      roundLimitLabel: 'Fixed round cap',
-      roundLimitHint: 'Used only in Fixed rounds mode; a positive integer from 1 to 9007199254740991.',
+      modeFixedHint: 'Limit each goal to a fixed number of rounds.',
+      roundLimitLabel: 'Round limit',
+      roundLimitHint: 'Automatic continuation stops at the limit.',
       roundLimitUnlimited: 'This value is the compatibility sentinel; the UI renders it as unlimited.',
       questionTimeoutLabel: 'Goal-question timeout (seconds)',
       questionTimeoutHint: '-1 never times out; otherwise an integer from 1 to 2147483. Hot changes affect only newly started waits, never the current one.',
@@ -141,12 +184,12 @@ window.__ModuleLoader__.load({
       invalidQuestionTimeout: 'The timeout must be -1 or an integer from 1 to 2147483.',
       readonlyNote: 'Read-only: host configuration cannot be written.',
       unavailableNote: 'Not writable: this configuration is unavailable on the current connection.',
-      settingsTitle: 'Goal runtime settings',
-      settingsIntro: 'Saving applies immediately, no restart. Hot changes affect only newly started goal rounds and question waits.',
-      'phase.active': 'Ongoing Goal',
-      'phase.active.disarmed': 'Inactive Goal',
-      'phase.paused': 'Paused Goal',
-      'phase.blocked': 'Blocked Goal',
+      settingsTitle: 'Goals',
+      settingsIntro: '',
+      'phase.active': 'Running',
+      'phase.active.disarmed': 'Paused',
+      'phase.paused': 'Paused',
+      'phase.blocked': 'Blocked',
       'objective.aria': 'Goal objective',
       'edit.placeholder': 'Enter a new goal objective',
       'action.save': 'Save goal',
@@ -157,6 +200,48 @@ window.__ModuleLoader__.load({
       'action.clear': 'Clear goal',
       'cap.unlimited': 'unlimited',
       'meta.rounds': 'Round {rounds} / {max}',
+      nativeSection: 'Native policy',
+      nativeDefaultLabel: 'Default round cap',
+      nativeDefaultHint: 'Used when a new goal omits its cap. Existing goals keep theirs.',
+      nativeBlockedLabel: 'Minimum rounds to report blocked',
+      nativeBlockedHint: 'The agent can report blocked after this many admitted rounds.',
+      invalidImplementation: 'Choose a goal implementation.',
+      invalidNative: 'Native parameters must be positive safe integers.',
+      help: 'About these settings',
+      implementation: 'Implementation',
+      replaceNative: 'Replace native Goal',
+      enhancedDescription: 'Replaces native goals with flexible round policies.',
+      nativeDescription: 'Uses the host’s native goals and round rules.',
+      unsaved: 'Unsaved changes',
+      restartAfterSave: 'Save, then restart the profile',
+      editShortcut: '⌘ / Ctrl + Enter to save · Esc to cancel',
+      replaceHint: 'When off, the host’s native Goal manages goals and continuation. Save, then restart the profile.',
+      reloadRequired: 'Restart the profile to apply',
+      runtimeBetter: 'Enhanced',
+      runtimeNative: 'Native',
+      runtimeLoading: 'Checking runtime…',
+      runtimeUnavailable: 'Runtime status unavailable.',
+      nativeDependency: 'Native mode uses the host’s round policy.',
+      runtimeActive: 'Running: {implementation}',
+      roundsSection: 'Continuation',
+      legacySection: 'Compatibility',
+      legacyHint: 'The old question timeout is retained for migration. Configure question waits in the question plugin.',
+      legacyTimeout: 'Previous question wait: {seconds} s',
+      never: 'Never',
+      'action.details': 'Expand goal',
+      'action.history': 'Goal history',
+      'action.hideHistory': 'Hide history',
+      'phase.complete': 'Complete',
+      'phase.cleared': 'Cleared',
+      'phase.archived': 'Replaced',
+      'history.title': 'Goal history',
+      'history.search': 'Search goals',
+      'history.all': 'All states',
+      'history.empty': 'No matching goals',
+      'history.rounds': '{rounds} / {max} rounds',
+      'history.count': '{count} goals',
+      'history.updated': 'Updated {time}',
+      'history.error': 'Goal history could not be read',
     }
 
     /** Interpolate `{name}` placeholders for the local fallback. */
@@ -173,67 +258,127 @@ window.__ModuleLoader__.load({
       return (typeof t === 'function' ? t : fallbackT)(key, params)
     }
 
-    // ── GoalBar styles (native geometry + DSH tokens) ──────────────────────
+    // Scoped neutral surfaces follow the host in light and dark themes.
+    const GOAL_CSS = `.dbg-dock{--dbg-accent:#3388BB;--dbg-on-accent:#fff;--dbg-selected:color-mix(in srgb,var(--dbg-accent) 72%,var(--dsw-alias-label-primary));box-sizing:border-box;width:calc(100% - 2 * var(--dsh-composer-side-clearance,12px) - 4 * var(--dsh-composer-dock-inset,2px));max-width:var(--dsh-composer-card-max-width,820px);margin:0 auto;color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px;container-type:inline-size;container-name:better-goal-dock}
+.dbg-bar{box-sizing:border-box;min-height:40px;border:.5px solid var(--dsw-alias-border-l3);border-radius:12px;background:var(--dsw-alias-bg-layer-2);display:flex;align-items:center;gap:10px;padding:4px 5px 4px 12px;position:relative;overflow:hidden}
+.dbg-bar[data-expanded=true]{border-radius:12px 12px 0 0}
+.dbg-goalMain{flex:1;min-width:0;display:flex;align-items:center;gap:10px}
+.dbg-goalStatus{display:flex;align-items:center;gap:8px;flex:none}
+.dbg-goalGlyph{color:var(--dsw-alias-label-tertiary);flex:none;display:inline-flex}
+.dbg-bar[data-running=true] :is(.dbg-goalGlyph,.dbg-label){color:var(--dbg-selected)}
+.dbg-label{font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary);white-space:nowrap}
+.dbg-objective{display:flex;align-items:center;gap:8px;min-width:0;min-height:28px;flex:1;text-align:left;color:var(--dsw-alias-label-secondary);font:inherit;background:transparent;border:0;border-radius:6px;padding:0;cursor:pointer}
+.dbg-objectiveText{min-width:0;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.dbg-chevron{flex:none;display:inline-flex;color:var(--dsw-alias-label-tertiary);transition:transform 100ms ease}
+[aria-expanded=true]>.dbg-chevron,.dbg-historyList details[open]>summary>.dbg-chevron{transform:rotate(180deg)}
+.dbg-meta,.dbg-historyMeta{color:var(--dsw-alias-label-tertiary);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dbg-meta{margin-left:auto}
+.dbg-error{margin:8px 0 0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+.dbg-editBar{display:block;padding:12px}
+.dbg-editLabel{display:block;margin-bottom:4px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dbg-editInput{box-sizing:border-box;resize:vertical;width:100%;min-height:88px;max-height:280px;padding:8px 10px;border:.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;line-height:20px}
+.dbg-editFooter{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:12px;flex-wrap:wrap}
+.dbg-editHint{font-size:12px;color:var(--dsw-alias-label-tertiary);margin-right:auto}
+.dbg-actions{flex:none;align-items:center;gap:4px;display:flex}
+.dbg-iconBtn{width:28px;height:28px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:transparent;border:0;border-radius:50%;justify-content:center;align-items:center;padding:0;display:inline-flex;transition:background-color 100ms ease}
+.dbg-editButton{height:32px;border:.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:transparent;color:inherit;padding:0 12px;font:inherit;font-size:13px;cursor:pointer}
+.dbg-editButton[data-primary=true]{background:color-mix(in srgb,var(--dbg-accent) 85%,black);color:var(--dbg-on-accent);border-color:transparent}
+.dbg-iconBtn:hover:not(:disabled),.dbg-objective:hover,.dbg-historyList summary:hover,.dbg-editButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.dbg-editButton[data-primary=true]:hover:not(:disabled){background:color-mix(in srgb,var(--dbg-accent) 72%,black)}
+.dbg-iconBtn[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dbg-iconBtn:active:not(:disabled),.dbg-objective:active,.dbg-editButton:active:not(:disabled){background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover))}
+.dbg-editButton[data-primary=true]:active:not(:disabled){background:color-mix(in srgb,var(--dbg-accent) 72%,black)}
+.dbg-iconBtn[data-danger=true]:hover{color:var(--dsw-alias-state-error-primary)}
+.dbg-dock :disabled{opacity:.4;cursor:default}
+.dbg-dock :is(button,input,textarea,select,summary):focus{outline:none}
+.dbg-dock :is(button,input,textarea,select,summary):focus-visible{outline:2px solid var(--dbg-accent);outline-offset:2px}
+.dbg-progressTrack{position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--dsw-alias-border-l2);pointer-events:none}
+.dbg-progress{display:block;height:100%;background:var(--dbg-accent)}
+.dbg-details,.dbg-history{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);border-radius:12px;background:var(--dsw-alias-bg-layer-2);padding:12px}
+.dbg-details{border-top:0;border-radius:0 0 12px 12px}
+.dbg-history{margin-top:8px}
+.dbg-fullObjective{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;line-height:20px}
+.dbg-historyHead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;font-size:14px;font-weight:500}
+.dbg-historyTools{display:flex;gap:8px;margin-bottom:12px}
+.dbg-search,.dbg-filter{box-sizing:border-box;min-width:0;height:32px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l3);border-radius:6px;color:inherit;background:var(--dsw-alias-bg-layer-1);font:inherit}
+.dbg-search{flex:1;width:100%}
+.dbg-search:hover,.dbg-filter:hover,.dbg-editInput:hover{border-color:var(--dsw-alias-border-l3)}
+.dbg-historyList{list-style:none;padding:0;margin:0;max-height:320px;overflow:auto;scrollbar-width:thin;scrollbar-gutter:stable}
+.dbg-historyList>li{content-visibility:auto;contain-intrinsic-size:auto 60px}
+.dbg-historyList>li+li{border-top:1px solid var(--dsw-alias-border-l2)}
+.dbg-historyList summary{cursor:pointer;display:flex;align-items:center;gap:12px;min-height:48px;padding:8px;list-style:none;border-radius:6px}
+.dbg-historyList summary::-webkit-details-marker{display:none}
+.dbg-historyIdentity{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.dbg-historyName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-weight:500}
+.dbg-historyFacts{display:flex;align-items:center;gap:12px}
+.dbg-historyBody{padding:0 8px 16px 16px;border-left:1px solid var(--dsw-alias-border-l2);margin:0 8px 8px}
+.dbg-historyBody time{display:block;margin-top:12px}
+.dbg-historyState{font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dbg-historyList li[data-phase=active] .dbg-historyState{color:var(--dbg-selected)}
+.dbg-historyEmpty{padding:24px 12px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px}
+@container better-goal-dock (max-width:540px){.dbg-bar{flex-wrap:wrap;gap:4px 8px}.dbg-goalMain{flex-basis:100%}.dbg-actions{margin-left:auto}.dbg-historyTools{flex-wrap:wrap}.dbg-filter{flex:1}.dbg-editHint{flex-basis:100%}}
+@container better-goal-dock (max-width:360px){.dbg-goalMain{align-items:stretch;flex-direction:column;gap:0}.dbg-goalStatus{flex-wrap:wrap}.dbg-historyFacts{gap:8px;flex-wrap:wrap}}
+@media(pointer:coarse),(max-width:540px){.dbg-iconBtn,.dbg-editButton{min-width:44px;min-height:44px}.dbg-objective{min-height:44px}}
+@media(prefers-reduced-motion:reduce){.dbg-dock *{animation:none!important;transition:none!important}}`
 
-    const GOAL_CSS = [
-      '.dbg-dock{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance) - var(--dsh-composer-side-clearance) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset));margin:0 auto}',
-      '.dbg-bar{isolation:isolate;box-sizing:border-box;width:100%;max-width:calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);height:36px;box-shadow:var(--dsw-elevation-panel);border:0;align-items:center;gap:10px;margin:0 auto;padding:4px 5px 4px 12px;display:flex;position:relative}',
-      '.dbg-bar:before{z-index:-1;border-radius:inherit;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);content:"";pointer-events:none;position:absolute;inset:0}',
-      '.dbg-goalGlyph{color:var(--dsw-alias-label-tertiary);flex:none;display:inline-flex}',
-      '.dbg-label{color:var(--dsw-alias-label-primary);flex:none;font-size:13px;font-weight:500;line-height:24px}',
-      '.dbg-objective{min-width:0;color:var(--dsw-alias-label-primary-dimmed);text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:13px;line-height:20px;overflow:hidden}',
-      '.dbg-meta{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:none;font-size:11.5px;line-height:16px;font-variant-numeric:tabular-nums}',
-      '.dbg-error{min-width:0;color:var(--dsw-alias-state-error-primary);text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:12px;line-height:20px;overflow:hidden}',
-      '.dbg-editBar{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);align-items:center;height:auto;min-height:36px}',
-      '.dbg-editInput{box-sizing:border-box;flex:1;min-width:0;height:26px;padding:0 2px;border:0;outline:none;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px}',
-      '.dbg-editInput::placeholder{color:var(--dsw-alias-label-dimmed)}',
-      '.dbg-editInput:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px;border-radius:var(--dsw-radius-sm)}',
-      '.dbg-actions{flex:none;align-items:center;gap:2px;display:flex}',
-      '.dbg-iconBtn{corner-shape:round;width:28px;height:28px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:999px;justify-content:center;align-items:center;padding:0;display:inline-flex}',
-      '.dbg-iconBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}',
-      '.dbg-iconBtn:disabled{opacity:.4;cursor:default}',
-      '.dbg-iconBtn:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}',
-      '@media (max-width:560px){.dbg-meta{display:none}}',
-    ].join('\n')
-
-    // ── Settings form styles ───────────────────────────────────────────────
-
-    const SETTINGS_CSS = [
-      '.dbg-cfg{display:flex;flex-direction:column;gap:12px;max-width:760px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary)}',
-      '.dbg-note{margin:0;padding:8px 10px;border-radius:var(--dsw-radius-md);font-size:12.5px;line-height:18px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary)}',
-      '.dbg-note[data-tone=warn]{background:var(--dsw-alias-state-warn-tertiary);color:var(--dsw-alias-label-secondary)}',
-      '.dbg-note[data-tone=ok]{color:var(--dsw-alias-state-success-primary)}',
-      '.dbg-note[data-tone=error]{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);color:var(--dsw-alias-state-error-primary)}',
-      '.dbg-pulse{animation:dbg-pulse 2s cubic-bezier(.36,0,.64,1) infinite}',
-      '@keyframes dbg-pulse{0%{opacity:1}40%{opacity:.6}80%,to{opacity:1}}',
-      '@media (prefers-reduced-motion:reduce){.dbg-pulse{animation:none}}',
-      '.dbg-title{margin:0;font-size:14px;font-weight:500;line-height:22px}',
-      '.dbg-hint{margin:0;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary)}',
-      '.dbg-intro{margin:0;font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-secondary)}',
-      '.dbg-section{display:flex;flex-direction:column;gap:2px;padding-top:12px;border-top:.5px solid var(--dsw-alias-border-l2)}',
-      '.dbg-sectionHead{display:flex;flex-direction:column;gap:2px;padding-bottom:4px}',
-      '.dbg-field{display:grid;grid-template-columns:minmax(120px,168px) minmax(0,1fr);gap:2px 12px;padding:6px 0;align-items:start}',
-      '.dbg-fieldLabel{padding-top:5px;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary)}',
-      '.dbg-fieldBody{display:flex;flex-direction:column;gap:4px;min-width:0}',
-      '.dbg-input,.dbg-select{box-sizing:border-box;width:100%;min-width:0;height:28px;padding:0 8px;font:inherit;font-size:13px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md)}',
-      '.dbg-select{appearance:none;background-image:none;padding-right:24px}',
-      '.dbg-input:focus,.dbg-select:focus{border-color:var(--dsw-alias-state-business-primary);outline:none}',
-      '.dbg-input:focus-visible,.dbg-select:focus-visible,.dbg-button:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}',
-      '.dbg-input:disabled,.dbg-select:disabled{opacity:.4;cursor:not-allowed}',
-      '.dbg-input[aria-invalid=true]{border-color:var(--dsw-alias-state-error-primary)}',
-      '.dbg-footer{display:flex;align-items:center;gap:8px;padding-top:12px;border-top:.5px solid var(--dsw-alias-border-l2)}',
-      '.dbg-button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 10px;border:0;border-radius:var(--dsw-radius-sm);font:inherit;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary);background:transparent;cursor:pointer}',
-      '.dbg-button:disabled{opacity:.4;cursor:not-allowed}',
-      '.dbg-button[data-variant=primary]{background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-label-primary));color:var(--dsw-alias-label-primary-foreground,var(--dsw-alias-bg-layer-3))}',
-      '.dbg-button[data-variant=primary]:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover,var(--dsw-alias-label-primary))}',
-      '.dbg-button[data-variant=outline]{border:.5px solid var(--dsw-alias-border-l3)}',
-      '.dbg-button[data-variant=outline]:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}',
-      '.dbg-status{flex:1;min-width:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}',
-      '.dbg-status[data-tone=ok]{color:var(--dsw-alias-state-success-primary)}',
-      '.dbg-status[data-tone=error]{color:var(--dsw-alias-state-error-primary)}',
-      '.dbg-status[data-tone=warn]{color:var(--dsw-alias-state-warn-label,var(--dsw-alias-label-secondary))}',
-      '@media (max-width:640px){.dbg-field{grid-template-columns:minmax(0,1fr)}.dbg-fieldLabel{padding-top:0}}',
-    ].join('\n')
+    const SETTINGS_CSS = `.dbg-cfg{--cfg-accent:#3388BB;--cfg-on-accent:#fff;--cfg-selected:color-mix(in srgb,var(--cfg-accent) 72%,var(--dsw-alias-label-primary));display:flex;flex-direction:column;gap:24px;max-width:960px;min-width:0;font-size:13px;line-height:20px;container-type:inline-size;container-name:better-goal-settings;color:var(--dsw-alias-label-primary)}
+.dbg-note{margin:0;padding:10px 12px;border:.5px solid var(--dsw-alias-border-l2);border-radius:6px;font-size:12px;line-height:18px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
+.dbg-note[data-tone=error],.dbg-status[data-tone=error]{color:var(--dsw-alias-state-error-primary)}
+.dbg-note[data-tone=warn]{border-left:2px solid var(--dsw-alias-state-warn-primary)}
+.dbg-section{display:flex;flex-direction:column;gap:16px;border:0;border-top:1px solid var(--dsw-alias-border-l2);padding:24px 0 0;margin:0;min-width:0}
+.dbg-sectionHead{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.dbg-title{margin:0;font-size:18px;font-weight:500;line-height:26px}
+.dbg-sectionTitle{margin:0;font-size:14px;font-weight:500;line-height:20px}
+.dbg-section legend{float:left;width:100%;padding:0;margin:0}
+.dbg-hint{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.dbg-field{display:grid;grid-template-columns:minmax(160px,1fr) minmax(0,280px);gap:8px 24px;align-items:start}
+.dbg-fieldHeading{display:flex;flex-direction:column;gap:4px;min-width:0;padding-top:7px}
+.dbg-fieldLabel{font-size:12px;line-height:18px;font-weight:400;color:var(--dsw-alias-label-secondary)}
+.dbg-fieldBody{display:flex;flex-direction:column;gap:4px;min-width:0}
+.dbg-input{box-sizing:border-box;width:100%;min-width:0;height:32px;padding:0 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l3);border-radius:6px;transition:border-color 100ms ease;font-variant-numeric:tabular-nums}
+.dbg-input:hover:not(:disabled){border-color:var(--dsw-alias-border-l3)}
+.dbg-cfg :is(input,button,summary):focus{outline:none}
+.dbg-cfg :is(input,button,summary):focus-visible{outline:2px solid var(--cfg-accent);outline-offset:2px}
+.dbg-cfg :disabled{opacity:.4;cursor:not-allowed}
+.dbg-input[aria-invalid=true]{border-color:var(--dsw-alias-state-error-primary)}
+.dbg-implementationChoices{display:inline-flex;align-self:flex-start;max-width:100%;gap:2px;padding:2px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
+.dbg-choice{position:relative;min-width:0;cursor:pointer;display:block;flex:1}
+.dbg-choiceInput{position:absolute;width:1px;height:1px;opacity:0;margin:0}
+.dbg-choiceFace{position:relative;display:flex;align-items:center;justify-content:center;border:0;border-radius:8px;padding:0 16px;min-height:28px;box-sizing:border-box;transition:background-color 100ms ease}
+.dbg-choiceHeading{font-size:13px;line-height:20px;white-space:nowrap;color:var(--dsw-alias-label-secondary)}
+.dbg-choiceInput:checked+.dbg-choiceFace{background:var(--dsw-alias-bg-layer-1);box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l3)}
+.dbg-choiceInput:checked+.dbg-choiceFace:after{content:"";position:absolute;bottom:0;left:12px;right:12px;height:2px;border-radius:2px;background:var(--cfg-accent)}
+.dbg-choiceInput:checked+.dbg-choiceFace .dbg-choiceHeading{color:var(--dsw-alias-label-primary);font-weight:500}
+.dbg-choice:hover .dbg-choiceInput:not(:disabled)+.dbg-choiceFace{background:var(--dsw-alias-interactive-bg-hover)}
+.dbg-choice:active .dbg-choiceInput:not(:disabled)+.dbg-choiceFace{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover))}
+.dbg-choiceInput:focus-visible+.dbg-choiceFace,.dbg-segmentInput:focus-visible+span{outline:2px solid var(--cfg-accent);outline-offset:2px}
+.dbg-choiceInput:disabled+.dbg-choiceFace{opacity:.4;cursor:not-allowed}
+.dbg-runtime{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:20px}
+.dbg-runtimeCurrent{display:inline-flex;align-items:center;gap:8px}
+.dbg-runtimeCurrent:before{content:'';width:6px;height:6px;border-radius:50%;background:var(--cfg-accent)}
+.dbg-runtimePending{padding-left:8px;border-left:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
+.dbg-segmented{display:flex;align-self:flex-start;max-width:100%;padding:2px;gap:2px;background:var(--dsw-alias-bg-layer-2);border:0;border-radius:10px}
+.dbg-segment{position:relative;flex:1;min-width:0;cursor:pointer;text-align:center}
+.dbg-segmentInput{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.dbg-segment>span{display:flex;align-items:center;justify-content:center;padding:0 12px;min-height:28px;border-radius:8px;font-size:13px;white-space:nowrap;color:var(--dsw-alias-label-secondary);transition:background-color 100ms ease}
+.dbg-segmentInput:checked+span{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-weight:500;box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l3)}
+.dbg-segment:hover .dbg-segmentInput:not(:disabled)+span{background:var(--dsw-alias-interactive-bg-hover)}
+.dbg-segment:active .dbg-segmentInput:not(:disabled)+span{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover))}
+.dbg-footer{display:flex;align-items:center;gap:8px;padding:16px 0;border-top:1px solid var(--dsw-alias-border-l2);flex-wrap:wrap;position:sticky;bottom:0;background:var(--dsw-alias-bg-layer-1)}
+.dbg-footer>.dbg-button[data-variant=outline]{margin-left:auto}
+.dbg-button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:32px;padding:0 12px;border:.5px solid transparent;border-radius:6px;font:inherit;font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary);background:transparent;cursor:pointer;transition:background-color 100ms ease}
+.dbg-button[data-variant=primary]{background:color-mix(in srgb,var(--cfg-accent) 85%,black);color:var(--cfg-on-accent)}
+.dbg-button[data-variant=primary]:hover:not(:disabled){background:color-mix(in srgb,var(--cfg-accent) 72%,black)}
+.dbg-button[data-variant=outline]{border-color:var(--dsw-alias-border-l2)}
+.dbg-button[data-variant=outline]:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.dbg-button:active:not(:disabled){filter:brightness(.94)}
+.dbg-status{flex:1;min-width:120px;font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
+.dbg-status[data-tone=ok]{color:var(--dsw-alias-state-success-primary)}
+.dbg-help{font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.dbg-help>summary{cursor:pointer;width:fit-content;padding:4px 0;list-style-position:inside}
+.dbg-help>p{margin:8px 0;max-width:64ch}
+@container better-goal-settings (max-width:540px){.dbg-field{grid-template-columns:minmax(0,1fr);gap:4px}.dbg-fieldHeading{padding-top:0}.dbg-status{flex-basis:100%;margin:4px 0 0}.dbg-runtimePending{padding-left:0;border:0;flex-basis:100%}.dbg-help>summary{min-height:32px;display:flex;align-items:center}.dbg-segment>span{padding:0 8px;white-space:normal}}
+@media(prefers-reduced-motion:reduce){.dbg-cfg *{animation:none!important;transition:none!important}}`
 
     // ── Icons (inline SVG keeps this closure dependency-free) ──────────────
 
@@ -285,6 +430,24 @@ window.__ModuleLoader__.load({
 
     function IconCheck() {
       return iconSvg(h('path', { d: 'm3.5 8.4 3.1 3.1 5.9-6.9', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }))
+    }
+
+    function IconInfo() {
+      return iconSvg([
+        h('circle', { key: 'circle', cx: 8, cy: 8, r: 5.5, stroke: 'currentColor', strokeWidth: 1.3 }),
+        h('path', { key: 'stem', d: 'M8 7v4M8 4.8v.1', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' }),
+      ])
+    }
+
+    function IconHistory() {
+      return iconSvg([
+        h('path', { key: 'arc', d: 'M2 7a6 6 0 1 1 1.4 5M2 3v4h4', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+        h('path', { key: 'clock', d: 'M8 4.5V8l2.5 1.5', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' }),
+      ])
+    }
+
+    function IconChevron() {
+      return iconSvg(h('path', { d: 'm4.5 6 3.5 3.5L11.5 6', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }))
     }
 
     function IconClose() {
@@ -542,12 +705,14 @@ window.__ModuleLoader__.load({
     // ── GoalBar ────────────────────────────────────────────────────────────
 
     /** One icon button with a native tooltip (title) and an aria label. */
-    function IconButton({ label, disabled, onClick, children }) {
+    function IconButton({ label, disabled, onClick, expanded, danger, children }) {
       return h('button', {
         type: 'button',
         className: 'dbg-iconBtn',
         title: label,
         'aria-label': label,
+        'aria-expanded': expanded,
+        'data-danger': danger || undefined,
         disabled: disabled === true,
         onClick,
       }, children)
@@ -562,12 +727,15 @@ window.__ModuleLoader__.load({
       goal,
       roundsStarted,
       activation,
+      onHistory,
+      historyOpen,
       onEdit,
       onPause,
       onResume,
       onClear,
       t,
     }) {
+      const [expanded, setExpanded] = useState(false)
       const [editing, setEditing] = useState(false)
       const [draft, setDraft] = useState('')
       const [pending, setPending] = useState(false)
@@ -579,6 +747,7 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         setEditing(false)
+        setExpanded(false)
         setClearedGoalId(null)
       }, [goalId])
 
@@ -621,9 +790,11 @@ window.__ModuleLoader__.load({
         return h('div', { className: 'dbg-dock', 'data-goal-bar': 'dsh-better-goal' },
           h('style', { 'data-plugin-css': STYLE_GOAL }, GOAL_CSS),
           h('div', { className: 'dbg-bar dbg-editBar' },
-            h('input', {
+            h('label', { className: 'dbg-editLabel', htmlFor: 'dsh-better-goal-objective' }, tr(t, 'objective.aria')),
+            h('textarea', {
+              id: 'dsh-better-goal-objective',
               className: 'dbg-editInput',
-              type: 'text',
+              rows: 3,
               value: draft,
               placeholder: tr(t, 'edit.placeholder'),
               'aria-label': tr(t, 'objective.aria'),
@@ -631,7 +802,7 @@ window.__ModuleLoader__.load({
               disabled: pending,
               onChange: (event) => setDraft(event.target.value),
               onKeyDown: (event) => {
-                if (event.key === 'Enter') {
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.nativeEvent?.isComposing) {
                   event.preventDefault()
                   void handleEdit()
                 } else if (event.key === 'Escape') {
@@ -641,17 +812,10 @@ window.__ModuleLoader__.load({
               },
             }),
             actionError !== null ? h('span', { className: 'dbg-error', role: 'alert', title: actionError }, actionError) : null,
-            h('div', { className: 'dbg-actions' },
-              h(IconButton, {
-                label: tr(t, 'action.save'),
-                disabled: pending || draft.trim() === '',
-                onClick: handleEdit,
-              }, h(IconCheck)),
-              h(IconButton, {
-                label: tr(t, 'action.cancel'),
-                disabled: pending,
-                onClick: () => setEditing(false),
-              }, h(IconClose))),
+            h('div', { className: 'dbg-editFooter' },
+              h('span', { className: 'dbg-editHint' }, tr(t, 'editShortcut')),
+              h('button', { type: 'button', className: 'dbg-editButton', 'aria-label': tr(t, 'action.cancel'), disabled: pending, onClick: () => setEditing(false) }, tr(t, 'action.cancel')),
+              h('button', { type: 'button', className: 'dbg-editButton', 'data-primary': true, 'aria-label': tr(t, 'action.save'), disabled: pending || draft.trim() === '', onClick: handleEdit }, tr(t, 'action.save'))),
           ))
       }
 
@@ -671,16 +835,16 @@ window.__ModuleLoader__.load({
 
       return h('div', { className: 'dbg-dock', 'data-goal-bar': 'dsh-better-goal' },
         h('style', { 'data-plugin-css': STYLE_GOAL }, GOAL_CSS),
-        h('div', { className: 'dbg-bar', title, 'aria-busy': pending ? true : undefined },
-          h('span', { className: 'dbg-goalGlyph' }, h(IconGoal)),
-          h('span', { className: 'dbg-label' }, phaseLabel),
-          actionError !== null
-            ? h('span', { className: 'dbg-error', role: 'alert', title: actionError }, actionError)
-            : h('span', { className: 'dbg-objective', title: goal.objective }, goal.objective),
-          rounds === undefined
-            ? null
-            : h('span', { className: 'dbg-meta' }, tr(t, 'meta.rounds', { rounds, max: capLabel })),
+        h('div', { className: 'dbg-bar', title, 'data-running': showPause, 'data-expanded': expanded, 'aria-busy': pending || undefined },
+          h('div', { className: 'dbg-goalMain' },
+            h('div', { className: 'dbg-goalStatus' },
+              h('span', { className: 'dbg-goalGlyph' }, h(IconGoal)),
+              h('span', { className: 'dbg-label' }, phaseLabel),
+              rounds === undefined ? null : h('span', { className: 'dbg-meta' }, tr(t, 'meta.rounds', { rounds, max: capLabel }))),
+            h('button', { type: 'button', className: 'dbg-objective', title: goal.objective, 'aria-label': tr(t, 'action.details'), 'aria-expanded': expanded, onClick: () => setExpanded((value) => !value) },
+              h('span', { className: 'dbg-objectiveText' }, goal.objective), h('span', { className: 'dbg-chevron' }, h(IconChevron)))),
           h('div', { className: 'dbg-actions' },
+            onHistory ? h(IconButton, { label: tr(t, 'action.history'), expanded: historyOpen, onClick: onHistory }, h(IconHistory)) : null,
             showPause
               ? h(IconButton, {
                 label: tr(t, 'action.pause'),
@@ -706,10 +870,59 @@ window.__ModuleLoader__.load({
             }, h(IconEdit)),
             h(IconButton, {
               label: tr(t, 'action.clear'),
+              danger: true,
               disabled: pending,
               onClick: () => handleClear(goal.id),
             }, h(IconTrash))),
-        ))
+          rounds !== undefined && !isUnlimitedCap(goal.maxGoalRounds)
+            ? h('div', { className: 'dbg-progressTrack', role: 'progressbar', 'aria-label': tr(t, 'roundLimitLabel'), 'aria-valuemin': 0, 'aria-valuemax': goal.maxGoalRounds, 'aria-valuenow': Math.min(rounds, goal.maxGoalRounds) }, h('span', { className: 'dbg-progress', style: { width: `${Math.min(100, rounds / goal.maxGoalRounds * 100)}%` } }))
+            : null),
+        actionError !== null ? h('p', { className: 'dbg-error', role: 'alert' }, actionError) : null,
+        expanded ? h('div', { className: 'dbg-details' },
+          h('p', { className: 'dbg-fullObjective' }, goal.objective),
+          goal.blockedReason ? h('p', { className: 'dbg-error' }, goal.blockedReason.message) : null) : null)
+    }
+
+    /** Session history is a host-owned replay projection, never browser storage. */
+    function GoalHistory({ history, currentGoalId, currentPhase, open, onToggle, showTrigger, t }) {
+      const [query, setQuery] = useState('')
+      const [phase, setPhase] = useState('all')
+      const deferredQuery = useDeferredValue(query)
+      const entries = history?.entries ?? []
+      if (entries.length === 0 && !history?.error) return null
+      const stateOf = (entry) => entry.cleared ? 'cleared' : entry.id === currentGoalId ? currentPhase ?? entry.phase : entry.phase !== 'complete' ? 'archived' : entry.phase
+      const search = deferredQuery.trim().toLocaleLowerCase()
+      const matching = open ? entries.filter((entry) => (phase === 'all' || stateOf(entry) === phase) && entry.objective.toLocaleLowerCase().includes(search)).toReversed() : []
+      return h('div', { className: 'dbg-dock' },
+        h('style', { 'data-plugin-css': STYLE_GOAL }, GOAL_CSS),
+        showTrigger ? h('div', { className: 'dbg-bar' },
+          h('span', { className: 'dbg-goalGlyph' }, h(IconHistory)),
+          h('button', { type: 'button', className: 'dbg-objective', 'aria-label': tr(t, 'action.history'), 'aria-expanded': open, onClick: onToggle }, tr(t, 'history.title')),
+          h('span', { className: 'dbg-meta' }, tr(t, 'history.count', { count: entries.length }))) : null,
+        open ? h('section', { className: 'dbg-history', 'aria-label': tr(t, 'history.title') },
+          h('div', { className: 'dbg-historyHead' },
+            h('span', null, tr(t, 'history.title')),
+            h(IconButton, { label: tr(t, 'action.hideHistory'), onClick: onToggle }, h(IconClose))),
+          history?.error ? h('p', { role: 'alert', className: 'dbg-error' }, tr(t, 'history.error'), ': ', history.error) : null,
+          h('div', { className: 'dbg-historyTools' },
+            h('input', { type: 'search', className: 'dbg-search', value: query, placeholder: tr(t, 'history.search'), 'aria-label': tr(t, 'history.search'), onChange: (event) => setQuery(event.target.value) }),
+            h('select', { className: 'dbg-filter', value: phase, 'aria-label': tr(t, 'history.all'), onChange: (event) => setPhase(event.target.value) },
+              h('option', { value: 'all' }, tr(t, 'history.all')),
+              ...['active', 'paused', 'blocked', 'complete', 'cleared', 'archived'].map((value) => h('option', { key: value, value }, tr(t, `phase.${value}`))))),
+          matching.length === 0 ? h('div', { className: 'dbg-historyEmpty', role: 'status' }, tr(t, 'history.empty')) :
+            h('ol', { className: 'dbg-historyList' }, matching.map((entry) => h('li', { key: entry.id, 'data-phase': stateOf(entry) },
+              h('details', null,
+                h('summary', null,
+                  h('span', { className: 'dbg-historyIdentity' },
+                    h('span', { className: 'dbg-historyName' }, entry.objective),
+                    h('span', { className: 'dbg-historyFacts' },
+                      h('span', { className: 'dbg-historyState' }, tr(t, `phase.${stateOf(entry)}`)),
+                      h('span', { className: 'dbg-historyMeta' }, tr(t, 'history.rounds', { rounds: entry.roundsStarted, max: isUnlimitedCap(entry.maxGoalRounds) ? tr(t, 'cap.unlimited') : entry.maxGoalRounds })))),
+                  h('span', { className: 'dbg-chevron' }, h(IconChevron))),
+                h('div', { className: 'dbg-historyBody' },
+                  h('p', { className: 'dbg-fullObjective' }, entry.objective),
+                  entry.blockedReason ? h('p', { className: 'dbg-error' }, entry.blockedReason.message) : null,
+                  h('time', { className: 'dbg-historyMeta', dateTime: new Date(entry.updatedAt).toISOString() }, tr(t, 'history.updated', { time: new Date(entry.updatedAt).toLocaleString() })))))))) : null)
     }
 
     /** Dock adapter: durable projection plus the private activation observable. */
@@ -722,6 +935,8 @@ window.__ModuleLoader__.load({
       onClear,
       t,
     }) {
+      const [historyOpen, setHistoryOpen] = useState(false)
+      const history = typeof useProjection === 'function' ? useProjection('better-goal-history') : undefined
       const projection = typeof useProjection === 'function' ? useProjection('goal') : undefined
       const goal = projection === undefined || projection === null ? projection : projection.goal
       const goalId = goal?.id
@@ -729,8 +944,13 @@ window.__ModuleLoader__.load({
       const activation = typeof useGoalActivation === 'function'
         ? useGoalActivation((next) => next.id === goalId && next.revision === revision ? next.activation : undefined)
         : undefined
-      return h(GoalBar, {
+      const hasHistory = history?.entries?.length > 0 || history?.error
+      const hasCurrent = goal && goal.phase !== 'complete'
+      const toggleHistory = () => setHistoryOpen((value) => !value)
+      return h(React.Fragment, null, h(GoalBar, {
         goal,
+        onHistory: hasHistory ? toggleHistory : undefined,
+        historyOpen,
         roundsStarted: projection === undefined || projection === null ? undefined : projection.roundsStarted,
         activation,
         onEdit,
@@ -738,7 +958,7 @@ window.__ModuleLoader__.load({
         onResume,
         onClear,
         t,
-      })
+      }), h(GoalHistory, { history, currentGoalId: goal?.id, currentPhase: goal?.phase === 'active' && activation === 'disarmed' ? 'paused' : goal?.phase, open: historyOpen, onToggle: toggleHistory, showTrigger: !hasCurrent, t }))
     }
 
     // ── Settings form (native row config) ──────────────────────────────────
@@ -747,6 +967,9 @@ window.__ModuleLoader__.load({
     function shapeConfig(value) {
       const source = isRecord(value) ? value : {}
       return {
+        implementation: source.implementation === 'native' ? 'native' : 'enhanced',
+        nativeDefaultMaxGoalRounds: isPositiveSafeInteger(source.nativeDefaultMaxGoalRounds) ? source.nativeDefaultMaxGoalRounds : 256,
+        nativeBlockedAfterConsecutiveRounds: isPositiveSafeInteger(source.nativeBlockedAfterConsecutiveRounds) ? source.nativeBlockedAfterConsecutiveRounds : 3,
         roundLimitMode: ROUND_LIMIT_MODES.includes(source.roundLimitMode) ? source.roundLimitMode : 'agent',
         roundLimit: isPositiveSafeInteger(source.roundLimit) ? source.roundLimit : DEFAULT_ROUND_LIMIT,
       }
@@ -755,14 +978,16 @@ window.__ModuleLoader__.load({
     /** Host shape → raw text draft (empty/invalid text stays editable). */
     function toDraft(config) {
       return {
+        implementation: config.implementation,
+        nativeDefaultMaxGoalRounds: String(config.nativeDefaultMaxGoalRounds),
+        nativeBlockedAfterConsecutiveRounds: String(config.nativeBlockedAfterConsecutiveRounds),
         roundLimitMode: config.roundLimitMode,
         roundLimit: String(config.roundLimit),
       }
     }
 
     function sameConfig(left, right) {
-      return left.roundLimitMode === right.roundLimitMode
-        && left.roundLimit === right.roundLimit
+      return Object.keys(left).every((key) => left[key] === right[key])
     }
 
     function parsePositiveSafeIntegerText(text) {
@@ -779,15 +1004,26 @@ window.__ModuleLoader__.load({
      * value stands, so switching modes never writes a value the user cannot see.
      */
     function parseDraft(draft, host) {
+      if (!['native', 'enhanced'].includes(draft.implementation)) return { error: 'invalidImplementation' }
       if (!ROUND_LIMIT_MODES.includes(draft.roundLimitMode)) return { error: 'invalidMode' }
       let roundLimit = host.roundLimit
-      if (draft.roundLimitMode === 'fixed') {
+      if (draft.implementation === 'enhanced' && draft.roundLimitMode === 'fixed') {
         const parsed = parsePositiveSafeIntegerText(draft.roundLimit)
         if (parsed === undefined) return { error: 'invalidRoundLimit' }
         roundLimit = parsed
       }
+      let nativeDefaultMaxGoalRounds = host.nativeDefaultMaxGoalRounds
+      let nativeBlockedAfterConsecutiveRounds = host.nativeBlockedAfterConsecutiveRounds
+      if (draft.implementation === 'native') {
+        nativeDefaultMaxGoalRounds = parsePositiveSafeIntegerText(draft.nativeDefaultMaxGoalRounds)
+        nativeBlockedAfterConsecutiveRounds = parsePositiveSafeIntegerText(draft.nativeBlockedAfterConsecutiveRounds)
+        if (nativeDefaultMaxGoalRounds === undefined || nativeBlockedAfterConsecutiveRounds === undefined) return { error: 'invalidNative' }
+      }
       return {
         value: {
+          implementation: draft.implementation,
+          nativeDefaultMaxGoalRounds,
+          nativeBlockedAfterConsecutiveRounds,
           roundLimitMode: draft.roundLimitMode,
           roundLimit,
         },
@@ -797,6 +1033,9 @@ window.__ModuleLoader__.load({
     /** One atomic namespace mutation carrying only changed volatile fields. */
     function diffOps(host, next) {
       const ops = []
+      for (const key of ['implementation', 'nativeDefaultMaxGoalRounds', 'nativeBlockedAfterConsecutiveRounds']) {
+        if (host[key] !== next[key]) ops.push({ op: 'set', path: [key], value: next[key] })
+      }
       if (host.roundLimitMode !== next.roundLimitMode) {
         ops.push({ op: 'set', path: ['roundLimitMode'], value: next.roundLimitMode })
       }
@@ -806,13 +1045,13 @@ window.__ModuleLoader__.load({
       return ops
     }
 
-    /** Field with a label, control, and optional hint. */
+    /** A native label and concise description aligned with its control. */
     function Field({ id, label, hint, children }) {
       return h('div', { className: 'dbg-field' },
-        h('label', { className: 'dbg-fieldLabel', htmlFor: id }, label),
-        h('div', { className: 'dbg-fieldBody' },
-          children,
-          hint === undefined ? null : h('p', { className: 'dbg-hint' }, hint)))
+        h('div', { className: 'dbg-fieldHeading' },
+          h('label', { className: 'dbg-fieldLabel', htmlFor: id }, label),
+          hint === undefined ? null : h('p', { className: 'dbg-hint', id: id + '-hint' }, hint)),
+        h('div', { className: 'dbg-fieldBody' }, children))
     }
 
     /** Row configuration page body: every field is a native volatile setting. */
@@ -824,6 +1063,19 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = useState(null)
       const [busy, setBusy] = useState(false)
       const [notice, setNotice] = useState(null)
+      const [runtime, setRuntime] = useState(undefined)
+      const busyRef = useRef(false)
+      useEffect(() => {
+        let current = true
+        fetch('/better-goal/api/config', { cache: 'no-store' })
+          .then((response) => {
+            if (!response.ok) throw new Error(String(response.status))
+            return response.json()
+          })
+          .then((value) => { if (current) setRuntime(value) })
+          .catch(() => { if (current) setRuntime(null) })
+        return () => { current = false }
+      }, [revision])
 
       const live = draft !== null && draft.revision === revision ? draft.value : baseDraft
       const parsed = live === null ? null : parseDraft(live, host)
@@ -840,9 +1092,10 @@ window.__ModuleLoader__.load({
       }, [baseDraft, revision])
 
       const save = useCallback(async () => {
-        if (!form || !writable || busy || !dirty || invalid !== null || parsed?.value === undefined) return
+        if (!form || !writable || busyRef.current || !dirty || invalid !== null || parsed?.value === undefined) return
         const ops = diffOps(host, parsed.value)
         if (ops.length === 0) return
+        busyRef.current = true
         setBusy(true)
         setNotice(null)
         try {
@@ -857,6 +1110,7 @@ window.__ModuleLoader__.load({
         } catch (error) {
           setNotice({ tone: 'error', text: tr(t, 'saveFailed') + String(error?.message ?? error) })
         } finally {
+          busyRef.current = false
           setBusy(false)
         }
       }, [busy, dirty, form, host, invalid, parsed, revision, t, writable])
@@ -864,7 +1118,7 @@ window.__ModuleLoader__.load({
       if (state === undefined) {
         return h('div', { className: 'dbg-cfg' },
           h('p', { className: 'dbg-note dbg-pulse', role: 'status' }, tr(t, 'waitingForm')),
-          h('p', { className: 'dbg-hint' }, tr(t, 'noFormHint')))
+          h('details', { className: 'dbg-help' }, h('summary', null, tr(t, 'help')), h('p', null, tr(t, 'noFormHint'))))
       }
       if (state.status === 'loading') {
         return h('div', { className: 'dbg-cfg' },
@@ -873,7 +1127,7 @@ window.__ModuleLoader__.load({
       if (host === null) {
         return h('div', { className: 'dbg-cfg' },
           h('p', { className: 'dbg-note', 'data-tone': 'warn' }, tr(t, 'unavailable')),
-          h('p', { className: 'dbg-hint' }, tr(t, 'noFormHint')))
+          h('details', { className: 'dbg-help' }, h('summary', null, tr(t, 'help')), h('p', null, tr(t, 'noFormHint'))))
       }
 
       const roundLimitValue = parsePositiveSafeIntegerText(live.roundLimit)
@@ -881,75 +1135,64 @@ window.__ModuleLoader__.load({
         ? h('span', { className: 'dbg-status', 'data-tone': notice.tone, role: notice.tone === 'error' ? 'alert' : 'status' }, notice.text)
         : invalid !== null
           ? h('span', { className: 'dbg-status', 'data-tone': 'error', role: 'alert' }, tr(t, invalid))
-          : h('span', { className: 'dbg-status', role: 'status' }, writable ? '' : tr(t, 'readonlyNote'))
+          : h('span', { className: 'dbg-status', role: 'status' }, writable ? (dirty ? tr(t, 'unsaved') : '') : tr(t, 'readonlyNote'))
 
-      return h('div', { className: 'dbg-cfg' },
-        h('div', { className: 'dbg-sectionHead' },
-          h('h3', { className: 'dbg-title' }, tr(t, 'settingsTitle')),
-          h('p', { className: 'dbg-intro' }, tr(t, 'settingsIntro'))),
+      const roundsDisabled = !writable || busy || live.implementation !== 'enhanced'
+      const draftRequiresReload = parsed?.value && ['implementation', 'nativeDefaultMaxGoalRounds', 'nativeBlockedAfterConsecutiveRounds'].some((key) => parsed.value[key] !== host[key])
+      const requiresReload = runtime?.requiresReload || (parsed?.value && ['implementation', 'nativeDefaultMaxGoalRounds', 'nativeBlockedAfterConsecutiveRounds'].some((key) => parsed.value[key] !== (runtime?.activeConfig ?? host)[key]))
+      return h('div', { className: 'dbg-cfg', 'aria-busy': busy || undefined },
+        h('div', { className: 'dbg-sectionHead' }, h('h3', { className: 'dbg-title' }, tr(t, 'settingsTitle'))),
         writable ? null : h('p', { className: 'dbg-note', 'data-tone': 'warn' }, tr(t, 'readonly')),
-        h('div', { className: 'dbg-section' },
-          h(Field, {
-            id: 'dsh-better-goal-round-limit-mode',
-            label: tr(t, 'modeLabel'),
-            hint: live.roundLimitMode === 'agent'
-              ? tr(t, 'modeAgentHint')
-              : live.roundLimitMode === 'unlimited'
-                ? tr(t, 'modeUnlimitedHint')
-                : tr(t, 'modeFixedHint'),
-          },
-          h('select', {
-            className: 'dbg-select',
-            id: 'dsh-better-goal-round-limit-mode',
-            value: live.roundLimitMode,
-            disabled: !writable || busy,
-            onChange: (event) => edit((current) => ({ ...current, roundLimitMode: event.target.value })),
-          },
-          h('option', { value: 'agent' }, tr(t, 'modeAgent')),
-          h('option', { value: 'unlimited' }, tr(t, 'modeUnlimited')),
-          h('option', { value: 'fixed' }, tr(t, 'modeFixed')))),
+        h('section', { className: 'dbg-section', 'aria-label': tr(t, 'implementation') },
+          h('h4', { className: 'dbg-sectionTitle' }, tr(t, 'implementation')),
+          h('div', { className: 'dbg-implementationChoices', role: 'group', 'aria-label': tr(t, 'implementation'), 'aria-describedby': 'dsh-better-goal-implementation-hint' },
+            ...['enhanced', 'native'].map((value) => h('label', { key: value, className: 'dbg-choice' },
+              h('input', { className: 'dbg-choiceInput', type: 'radio', name: 'dsh-better-goal-implementation', id: 'dsh-better-goal-implementation-' + value, value,
+                checked: live.implementation === value, disabled: !writable || busy,
+                onChange: () => edit((current) => ({ ...current, implementation: value })) }),
+              h('span', { className: 'dbg-choiceFace' },
+                h('span', { className: 'dbg-choiceHeading' }, tr(t, value === 'enhanced' ? 'runtimeBetter' : 'runtimeNative')))))),
+          h('p', { className: 'dbg-hint', id: 'dsh-better-goal-implementation-hint' }, tr(t, live.implementation === 'enhanced' ? 'enhancedDescription' : 'nativeDescription')),
+          h('div', { className: 'dbg-runtime', role: 'status' },
+            runtime?.runtime ? h('span', { className: 'dbg-runtimeCurrent' }, tr(t, 'runtimeActive', { implementation: tr(t, runtime.runtime.implementation === 'native' ? 'runtimeNative' : 'runtimeBetter') }))
+              : h('span', null, tr(t, runtime === undefined ? 'runtimeLoading' : 'runtimeUnavailable')),
+            requiresReload ? h('span', { className: 'dbg-runtimePending', 'data-restart-pending': true }, tr(t, draftRequiresReload && notice?.tone !== 'ok' ? 'restartAfterSave' : 'reloadRequired')) : null)),
+        live.implementation === 'native' ? h('fieldset', { className: 'dbg-section', disabled: !writable || busy },
+          h('legend', { className: 'dbg-sectionTitle' }, tr(t, 'nativeSection')),
+          ...[
+            ['nativeDefaultMaxGoalRounds', 'nativeDefaultLabel', 'nativeDefaultHint'],
+            ['nativeBlockedAfterConsecutiveRounds', 'nativeBlockedLabel', 'nativeBlockedHint'],
+          ].map(([key, label, hint]) => h(Field, { key, t, id: 'dsh-better-goal-' + key, label: tr(t, label), hint: tr(t, hint) },
+            h('input', { className: 'dbg-input', id: 'dsh-better-goal-' + key, type: 'number', min: 1, max: UNLIMITED_ROUNDS, step: 1, inputMode: 'numeric', value: live[key], disabled: !writable || busy,
+              'aria-describedby': 'dsh-better-goal-' + key + '-hint',
+              'aria-invalid': invalid === 'invalidNative' || undefined,
+              onChange: (event) => edit((current) => ({ ...current, [key]: event.target.value })),
+            })))) : h('fieldset', { className: 'dbg-section', disabled: roundsDisabled },
+          h('legend', { className: 'dbg-sectionTitle' }, tr(t, 'roundsSection')),
+          h('div', { className: 'dbg-fieldBody' },
+            h('div', { className: 'dbg-segmented', role: 'group', 'aria-label': tr(t, 'modeLabel'), 'aria-describedby': 'dsh-better-goal-mode-hint' },
+              ...ROUND_LIMIT_MODES.map((value) => h('label', { className: 'dbg-segment', key: value },
+                h('input', { className: 'dbg-segmentInput', type: 'radio', name: 'dsh-better-goal-round-limit-mode', id: 'dsh-better-goal-round-limit-mode-' + value, value,
+                  checked: live.roundLimitMode === value, disabled: roundsDisabled,
+                  onChange: () => edit((current) => ({ ...current, roundLimitMode: value })) }),
+                h('span', null, tr(t, value === 'agent' ? 'modeAgent' : value === 'unlimited' ? 'modeUnlimited' : 'modeFixed'))))),
+            h('p', { className: 'dbg-hint', id: 'dsh-better-goal-mode-hint' }, tr(t, live.roundLimitMode === 'agent' ? 'modeAgentHint' : live.roundLimitMode === 'unlimited' ? 'modeUnlimitedHint' : 'modeFixedHint'))),
           live.roundLimitMode === 'fixed'
-            ? h(Field, {
-              id: 'dsh-better-goal-round-limit',
-              label: tr(t, 'roundLimitLabel'),
-              hint: roundLimitValue === UNLIMITED_ROUNDS
-                ? `${tr(t, 'roundLimitHint')} ${tr(t, 'roundLimitUnlimited')}`
-                : tr(t, 'roundLimitHint'),
-            },
-            h('input', {
-              className: 'dbg-input',
-              id: 'dsh-better-goal-round-limit',
-              type: 'number',
-              min: 1,
-              max: UNLIMITED_ROUNDS,
-              step: 1,
-              inputMode: 'numeric',
-              value: live.roundLimit,
-              disabled: !writable || busy,
-              'aria-invalid': invalid === 'invalidRoundLimit' ? true : undefined,
-              onChange: (event) => edit((current) => ({ ...current, roundLimit: event.target.value })),
-            }))
-            : null,
-          ),
+            ? h(Field, { t, id: 'dsh-better-goal-round-limit', label: tr(t, 'roundLimitLabel'), hint: roundLimitValue === UNLIMITED_ROUNDS ? tr(t, 'roundLimitUnlimited') : tr(t, 'roundLimitHint') },
+              h('input', { className: 'dbg-input', id: 'dsh-better-goal-round-limit', type: 'number', min: 1, max: UNLIMITED_ROUNDS, step: 1, inputMode: 'numeric', value: live.roundLimit, disabled: roundsDisabled,
+                'aria-describedby': 'dsh-better-goal-round-limit-hint',
+                'aria-invalid': invalid === 'invalidRoundLimit' || undefined,
+                onChange: (event) => edit((current) => ({ ...current, roundLimit: event.target.value })),
+              }))
+            : null),
+        state.value?.questionTimeoutSeconds !== undefined ? h('details', { className: 'dbg-help' },
+          h('summary', null, tr(t, 'legacySection')),
+          h('p', null, state.value.questionTimeoutSeconds === -1 ? tr(t, 'never') : tr(t, 'legacyTimeout', { seconds: state.value.questionTimeoutSeconds })),
+          h('p', null, tr(t, 'legacyHint'))) : null,
         h('div', { className: 'dbg-footer' },
-          h('button', {
-            type: 'button',
-            className: 'dbg-button',
-            'data-variant': 'primary',
-            disabled: !writable || busy || !dirty || invalid !== null,
-            onClick: () => void save(),
-          }, busy ? tr(t, 'saving') : tr(t, 'save')),
-          h('button', {
-            type: 'button',
-            className: 'dbg-button',
-            'data-variant': 'outline',
-            disabled: busy || draft === null,
-            onClick: () => {
-              setDraft(null)
-              setNotice(null)
-            },
-          }, tr(t, 'reset')),
-          status))
+          status,
+          h('button', { type: 'button', className: 'dbg-button', 'data-variant': 'outline', disabled: busy || draft === null, onClick: () => { setDraft(null); setNotice(null) } }, tr(t, 'reset')),
+          h('button', { type: 'button', className: 'dbg-button', 'data-variant': 'primary', disabled: !writable || busy || !dirty || invalid !== null, onClick: () => void save() }, busy ? tr(t, 'saving') : tr(t, 'save'))))
     }
 
     /** `plugins.row.config` entry: summary in the row list, page body otherwise. */
@@ -1019,6 +1262,7 @@ window.__ModuleLoader__.load({
     // Exported for the scoped React tests; production uses apply().
     exports.GoalBar = GoalBar
     exports.GoalDock = GoalDock
+    exports.GoalHistory = GoalHistory
     exports.GoalConfigPanel = GoalConfigPanel
     exports.GoalConfigPage = GoalConfigPage
     exports.createGoalActions = createGoalActions
